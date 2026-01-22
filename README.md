@@ -68,7 +68,7 @@ Keep your database populated with the latest data.
     - Ensure `.env` contains `PIPECAT_API_KEY` and PostgreSQL credentials.
 4.  **Start Synchronization**:
     ```bash
-    npm start
+    npm run sync
     ```
     - This runs the real-time sync script to fetch Agents, Sessions, and Conversations.
 
