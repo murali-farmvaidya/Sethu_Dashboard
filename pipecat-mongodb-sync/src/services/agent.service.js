@@ -6,20 +6,20 @@ class AgentService {
   constructor(pipecatClient) {
     this.pipecatClient = pipecatClient;
   }
-  
+
   async syncAgents() {
     try {
       logger.info('Starting agent sync...');
-      
+
       const agents = await retryWithBackoff(
         () => this.pipecatClient.getAllAgents(),
         'Fetch agents from Pipecat'
       );
-      
+
       let created = 0;
       let updated = 0;
       let failed = 0;
-      
+
       for (const agentData of agents) {
         try {
           const result = await this.upsertAgent(agentData);
@@ -30,26 +30,26 @@ class AgentService {
           failed++;
         }
       }
-      
+
       logger.info(`Agent sync completed: ${created} created, ${updated} updated, ${failed} failed`);
       return { created, updated, failed, total: agents.length };
-      
+
     } catch (error) {
       logger.error('Agent sync failed:', error.message);
       throw error;
     }
   }
-  
+
   async upsertAgent(agentData) {
     const agentId = agentData.id;
     const agentName = agentData.name;
-    
+
     if (!agentId || !agentName) {
       throw new Error('Agent data missing ID or name');
     }
-    
+
     const now = new Date();
-    
+
     // Store both ID and name - we need name for API calls
     const agentDoc = {
       agent_id: agentId,
@@ -59,32 +59,39 @@ class AgentService {
       config: {
         region: agentData.region,
         deployment_id: agentData.activeDeploymentId,
-        organization_id: agentData.organizationId
+        organization_id: agentData.organizationId,
+        ready: agentData.ready,
+        active_session_count: agentData.activeSessionCount || 0,
+        active_deployment_ready: agentData.activeDeploymentReady,
+        auto_scaling: agentData.autoScaling // Capture autoScaling settings
       },
       metadata: {
         region: agentData.region,
         activeDeploymentId: agentData.activeDeploymentId,
         organizationId: agentData.organizationId,
+        agentProfile: agentData.agentProfile,
+        deployment: agentData.deployment, // Capture full deployment details including manifest and serviceId
         created_at: agentData.createdAt,
         updated_at: agentData.updatedAt,
-        deleted_at: agentData.deletedAt
+        deleted_at: agentData.deletedAt,
+        raw_data: agentData // Store the COMPLETE raw JSON response for future use
       },
       created_at: agentData.createdAt ? new Date(agentData.createdAt) : now,
       updated_at: agentData.updatedAt ? new Date(agentData.updatedAt) : now,
       last_synced_at: now
     };
-    
+
     try {
       const result = await Agent.findOneAndUpdate(
         { agent_id: agentId },
         { $set: agentDoc },
-        { 
+        {
           upsert: true,
           new: true,
           setDefaultsOnInsert: true
         }
       );
-      
+
       return {
         success: true,
         created: result.isNew,
@@ -92,7 +99,7 @@ class AgentService {
         agent_id: agentId,
         agent_name: agentName
       };
-      
+
     } catch (error) {
       if (error.code === 11000) { // Duplicate key error
         logger.warn(`Duplicate agent detected: ${agentName}, retrying...`);
@@ -106,12 +113,12 @@ class AgentService {
       throw error;
     }
   }
-  
+
   async getAllAgentNames() {
     try {
       const agents = await Agent.find({}, { agent_id: 1, agent_name: 1, name: 1 });
-      return agents.map(a => ({ 
-        id: a.agent_id, 
+      return agents.map(a => ({
+        id: a.agent_id,
         name: a.agent_name || a.name,
         stored_name: a.name
       }));
