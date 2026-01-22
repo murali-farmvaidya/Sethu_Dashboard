@@ -246,7 +246,6 @@ export default function AgentDetails() {
                         <span className="info-value">{formatDate(agentCreatedAt)}</span>
                     </div>
 
-                    <div className="stats-divider" style={{ margin: '1.5rem 0', borderTop: '1px solid #eee' }}></div>
 
                     <div className="info-row">
                         <span className="info-label">Total Sessions</span>
@@ -257,11 +256,6 @@ export default function AgentDetails() {
                         <span className="info-label">Success Rate</span>
                         {/* Note: Server-provided stats */}
                         <span className="info-value">{successRate}%</span>
-                    </div>
-
-                    <div className="info-row">
-                        <span className="info-label">Zero Turn Sessions</span>
-                        <span className="info-value">{zeroTurnsCount}</span>
                     </div>
 
                     <div className="info-row">

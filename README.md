@@ -18,8 +18,8 @@ This directory contains the user interface and the API server that powers it.
 - `server/index.js`: The Express API server connecting to PostgreSQL.
 - `.env`: Configuration for API and Database credentials.
 
-### 2. `pipecat-mongodb-sync/` (Data Sync Service)
-*Note: Despite the name, this service now syncs to **PostgreSQL**.*
+### 2. `backend/` (Data Sync Service)
+*Note: This service syncs data to **PostgreSQL**.*
 This service runs in the background to fetch data from the Pipecat API and keep the local database updated in real-time.
 - **Sync Script**: (`scripts/sync-realtime.js`) Continuously polls Pipecat for new sessions and updates the database.
 - **Database Connection**: (`src/config/database.js`) Manages Sequelize connections to Azure PostgreSQL.
@@ -58,7 +58,7 @@ Keep your database populated with the latest data.
 
 1.  Navigate to the directory:
     ```bash
-    cd pipecat-mongodb-sync
+    cd backend
     ```
 2.  Install dependencies:
     ```bash
@@ -91,14 +91,14 @@ dashboard/
 │   ├── package.json               # NPM Scripts for Frontend
 │   └── vite.config.js             # Vite Configuration
 │
-└── pipecat-mongodb-sync/          # Data Ingestion Service
+└── backend/                       # Data Ingestion Service
     ├── scripts/
     │   └── sync-realtime.js       # Main sync logic
     ├── src/
     │   ├── config/                # DB & API Config
     │   └── services/              # Business logic for sync
     ├── .env                       # Sync Service Config
-    └── package.json               # NPM Scripts for Sync
+    └── package.json               # NPM Scripts for Backend
 ```
 
 ## 🌐 Deployment
