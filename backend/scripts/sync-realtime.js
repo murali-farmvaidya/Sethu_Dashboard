@@ -302,7 +302,8 @@ async function syncConversations(client, agents) {
                 if (!sessionId) continue;
 
                 if (!sessionContexts.has(sessionId)) {
-                    sessionContexts.set(sessionId, { contextLog: null, contextTime: null, ttsLog: null, ttsTime: null, isUniversal: false });
+                    // ttsLogs will be an array of { msg, time }
+                    sessionContexts.set(sessionId, { contextLog: null, contextTime: null, ttsLogs: [], isUniversal: false });
                 }
                 const current = sessionContexts.get(sessionId);
 
@@ -317,12 +318,9 @@ async function syncConversations(client, agents) {
                     }
                 }
 
-                // Handle TTS Log (capture potential final response)
+                // Handle TTS Log (capture potential final responses)
                 if (msg.includes('Generating TTS [')) {
-                    if (!current.ttsTime || logTime > current.ttsTime) {
-                        current.ttsLog = msg;
-                        current.ttsTime = logTime;
-                    }
+                    current.ttsLogs.push({ msg, time: logTime });
                 }
             }
 
@@ -331,21 +329,26 @@ async function syncConversations(client, agents) {
             await client.delay(100);
         }
 
-        for (const [sessionId, { contextLog, contextTime, ttsLog, ttsTime }] of sessionContexts) {
+        for (const [sessionId, { contextLog, contextTime, ttsLogs }] of sessionContexts) {
             try {
                 if (!contextLog) continue;
 
                 const turns = parseContextLog(contextLog);
 
-                // Check if we have a newer TTS log that isn't in the turns
-                if (ttsLog && ttsTime > contextTime) {
-                    const lastTurn = turns[turns.length - 1];
-                    const ttsMessage = parseTTSLog(ttsLog);
+                // Get all TTS logs that happened AFTER the last context log
+                // Sort by time to ensure correct order of speech
+                const recentTTS = (ttsLogs || [])
+                    .filter(t => t.time > contextTime)
+                    .sort((a, b) => a.time - b.time);
 
-                    // If last turn has no assistant message, or if it does but it doesn't match this new one
-                    if (lastTurn && !lastTurn.assistant_message && ttsMessage) {
-                        logger.info(`Found missing final response for ${sessionId}, appending...`);
-                        lastTurn.assistant_message = ttsMessage;
+                if (recentTTS.length > 0) {
+                    const lastTurn = turns[turns.length - 1];
+                    const messages = recentTTS.map(t => parseTTSLog(t.msg)).filter(m => m);
+
+                    if (messages.length > 0 && lastTurn && !lastTurn.assistant_message) {
+                        const finalMessage = messages.join(' ');
+                        logger.info(`Found missing final response(s) for ${sessionId}, appending: "${finalMessage}"`);
+                        lastTurn.assistant_message = finalMessage;
                     }
                 }
 
@@ -353,8 +356,19 @@ async function syncConversations(client, agents) {
 
                 const time = contextTime; // Use context time as main reference
                 const existing = await Conversation.findOne({ where: { session_id: sessionId } });
-                // Skip if conversation exists with same turn count and is up to date
-                if (existing && existing.turns.length === turns.length && existing.last_message_at >= time) {
+
+                // Check if we have new content to save (specifically missing assistant response)
+                let isContentMissing = false;
+                if (existing && existing.turns.length === turns.length) {
+                    const lastTurn = turns[turns.length - 1];
+                    const existingLastTurn = existing.turns[existing.turns.length - 1];
+                    if (lastTurn.assistant_message && (!existingLastTurn || !existingLastTurn.assistant_message)) {
+                        isContentMissing = true;
+                    }
+                }
+
+                // Skip if conversation exists with same turn count and is up to date, unless we found missing content
+                if (existing && existing.turns.length === turns.length && existing.last_message_at >= time && !isContentMissing) {
                     continue;
                 }
 
