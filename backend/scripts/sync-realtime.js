@@ -17,12 +17,18 @@ const PipecatClient = require(path.join(__dirname, '../src/config/pipecat'));
 const logger = require(path.join(__dirname, '../src/utils/logger'));
 const {
     extractSessionId,
-    parseContextLog
+    parseContextLog,
+    parseTTSLog
 } = require(path.join(__dirname, '../src/services/pipecat_normalization'));
+const { generateSummary } = require(path.join(__dirname, '../src/services/summary.service'));
 
 // ============ CONFIGURATION ============
 const SYNC_START_DATE = new Date('2026-01-01T00:00:00Z');
 const POLL_INTERVAL_MS = 5000; // Run every 5 seconds
+
+// Sessions that ENDED after this time will get auto-generated summaries
+// Set to script start time so only new sessions get summaries, not historical ones
+const SUMMARY_CUTOFF_TIME = new Date();
 
 // ============ MODELS (Sequelize) ============
 
@@ -124,6 +130,10 @@ const Conversation = sequelize.define('Conversation', {
     total_turns: DataTypes.INTEGER,
     first_message_at: DataTypes.DATE,
     last_message_at: DataTypes.DATE,
+    summary: {
+        type: DataTypes.TEXT,
+        allowNull: true
+    },
     last_synced: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
@@ -288,22 +298,29 @@ async function syncConversations(client, agents) {
                 }
 
                 const msg = log.log || '';
-                if (!msg.includes('context [')) continue;
-
                 const sessionId = extractSessionId(msg);
                 if (!sessionId) continue;
 
-                const isUniversal = msg.includes('universal context');
+                if (!sessionContexts.has(sessionId)) {
+                    // ttsLogs will be an array of { msg, time }
+                    sessionContexts.set(sessionId, { contextLog: null, contextTime: null, ttsLogs: [], isUniversal: false });
+                }
                 const current = sessionContexts.get(sessionId);
 
-                if (!current) {
-                    sessionContexts.set(sessionId, { log: msg, time: logTime, isUniversal });
-                } else {
-                    if (isUniversal && !current.isUniversal) {
-                        sessionContexts.set(sessionId, { log: msg, time: logTime, isUniversal });
-                    } else if (isUniversal === current.isUniversal && logTime > current.time) {
-                        sessionContexts.set(sessionId, { log: msg, time: logTime, isUniversal });
+                // Handle Context Log
+                if (msg.includes('context [')) {
+                    const isUniversal = msg.includes('universal context');
+
+                    if (!current.contextLog || (isUniversal && !current.isUniversal) || (isUniversal === current.isUniversal && logTime > current.contextTime)) {
+                        current.contextLog = msg;
+                        current.contextTime = logTime;
+                        current.isUniversal = isUniversal;
                     }
+                }
+
+                // Handle TTS Log (capture potential final responses)
+                if (msg.includes('Generating TTS [')) {
+                    current.ttsLogs.push({ msg, time: logTime });
                 }
             }
 
@@ -312,18 +329,74 @@ async function syncConversations(client, agents) {
             await client.delay(100);
         }
 
-        for (const [sessionId, { log: contextLog, time }] of sessionContexts) {
+        for (const [sessionId, { contextLog, contextTime, ttsLogs }] of sessionContexts) {
             try {
+                if (!contextLog) continue;
+
                 const turns = parseContextLog(contextLog);
+
+                // Get all TTS logs that happened AFTER the last context log
+                // Sort by time to ensure correct order of speech
+                const recentTTS = (ttsLogs || [])
+                    .filter(t => t.time > contextTime)
+                    .sort((a, b) => a.time - b.time);
+
+                if (recentTTS.length > 0) {
+                    const lastTurn = turns[turns.length - 1];
+                    const messages = recentTTS.map(t => parseTTSLog(t.msg)).filter(m => m);
+
+                    if (messages.length > 0 && lastTurn && !lastTurn.assistant_message) {
+                        const finalMessage = messages.join(' ');
+                        logger.info(`Found missing final response(s) for ${sessionId}, appending: "${finalMessage}"`);
+                        lastTurn.assistant_message = finalMessage;
+                    }
+                }
+
                 if (turns.length === 0) continue;
 
+                const time = contextTime; // Use context time as main reference
                 const existing = await Conversation.findOne({ where: { session_id: sessionId } });
-                if (existing && existing.turns.length === turns.length && existing.last_message_at >= time) {
+
+                // Check if we have new content to save (specifically missing assistant response)
+                let isContentMissing = false;
+                if (existing && existing.turns.length === turns.length) {
+                    const lastTurn = turns[turns.length - 1];
+                    const existingLastTurn = existing.turns[existing.turns.length - 1];
+                    if (lastTurn.assistant_message && (!existingLastTurn || !existingLastTurn.assistant_message)) {
+                        isContentMissing = true;
+                    }
+                }
+
+                // Skip if conversation exists with same turn count and is up to date, unless we found missing content
+                if (existing && existing.turns.length === turns.length && existing.last_message_at >= time && !isContentMissing) {
                     continue;
                 }
 
                 const parentSession = await Session.findOne({ where: { session_id: sessionId } });
                 if (!parentSession) continue;
+
+                // Generate summary for sessions that:
+                // 1. Have ended
+                // 2. Have conversation turns
+                // 3. Are RECENT (started today or later) - prevents backfilling old history
+                // 4. Don't have a summary yet (handle retry if synced before end)
+                let summary = null;
+                const sessionEnded = parentSession.ended_at;
+                const hasTurns = turns.length > 0;
+                const noSummaryYet = !existing?.summary;
+
+                // Static cutoff (Today) ensures we cover all "current" testing sessions, persisting across restarts
+                const RECENT_CUTOFF = new Date('2026-01-28T00:00:00Z');
+                const isRecentSession = new Date(parentSession.started_at) >= RECENT_CUTOFF;
+
+                if (sessionEnded && hasTurns && noSummaryYet && isRecentSession) {
+                    logger.info(`Generating summary for ended session: ${sessionId}`);
+                    summary = await generateSummary(turns);
+                } else if (existing?.summary) {
+                    // Keep existing summary if we already have one
+                    summary = existing.summary;
+                }
+                // Old sessions or not ended yet -> summary stays null/unchanged
 
                 await Conversation.upsert({
                     session_id: sessionId,
@@ -333,6 +406,7 @@ async function syncConversations(client, agents) {
                     total_turns: turns.length,
                     first_message_at: turns[0]?.timestamp || time,
                     last_message_at: time,
+                    summary: summary,
                     last_synced: new Date()
                 });
 

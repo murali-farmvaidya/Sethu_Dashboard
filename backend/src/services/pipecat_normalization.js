@@ -144,8 +144,19 @@ function parseContextLog(logMessage) {
     return turns;
 }
 
+/**
+ * Parses a "Generating TTS [...]" log to extract the assistant's message.
+ * @param {string} logMessage 
+ * @returns {string|null}Extracted message or null
+ */
+function parseTTSLog(logMessage) {
+    const match = logMessage.match(/Generating TTS \[(.+)\]/);
+    return match ? match[1] : null;
+}
+
 module.exports = {
     extractSessionId,
     cleanUserMessage,
-    parseContextLog
+    parseContextLog,
+    parseTTSLog
 };
