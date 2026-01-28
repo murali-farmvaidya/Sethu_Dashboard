@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../api/client';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -21,6 +21,7 @@ export default function AgentDetails() {
     const [zeroTurnsCount, setZeroTurnsCount] = useState(0);
     const [agentCreatedAt, setAgentCreatedAt] = useState(null);
     const [agentLastSynced, setAgentLastSynced] = useState(null);
+    const [generatingSummary, setGeneratingSummary] = useState({});
     const navigate = useNavigate();
 
     const fetchSessions = useCallback(async () => {
@@ -222,6 +223,25 @@ export default function AgentDetails() {
         setDownloadDropdown(null);
     };
 
+    // Generate summary on demand
+    const handleGenerateSummary = async (sessionId) => {
+        setGeneratingSummary(prev => ({ ...prev, [sessionId]: true }));
+        try {
+            const res = await api.post(`/api/conversation/${sessionId}/generate-summary`);
+            if (res.data?.summary) {
+                // Update sessions state with the new summary
+                setSessions(prev => prev.map(s =>
+                    s.session_id === sessionId ? { ...s, summary: res.data.summary } : s
+                ));
+            }
+        } catch (err) {
+            console.error('Failed to generate summary:', err);
+            alert('Failed to generate summary. Please try again.');
+        } finally {
+            setGeneratingSummary(prev => ({ ...prev, [sessionId]: false }));
+        }
+    };
+
     if (loading && sessions.length === 0) return <div className="loading">Loading sessions...</div>;
 
     // Find earliest date in current view as a proxy for "Created At" if not available
@@ -325,9 +345,7 @@ export default function AgentDetails() {
                                         <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Session ID</th>
                                         <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Date</th>
                                         <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Time</th>
-                                        <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Duration</th>
-                                        <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Startup Time</th>
-                                        <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Turns</th>
+                                        <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', minWidth: '300px' }}>Summary</th>
                                         <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Download</th>
                                     </tr>
                                 </thead>
@@ -341,16 +359,50 @@ export default function AgentDetails() {
                                                 {formatDate(session.started_at)}
                                             </td>
                                             <td className="clickable-cell" onClick={() => navigate(`/session/${session.session_id}`)} style={{ padding: '1rem' }}>
-                                                {formatTime(session.started_at)} - {formatTime(session.ended_at)}
+                                                {formatTime(session.started_at)} - {formatTime(session.ended_at)} ({formatSecondsToTime(session.duration_seconds)})
                                             </td>
-                                            <td className="clickable-cell" onClick={() => navigate(`/session/${session.session_id}`)} style={{ padding: '1rem' }}>
-                                                {formatSecondsToTime(session.duration_seconds)}
-                                            </td>
-                                            <td className="clickable-cell" onClick={() => navigate(`/session/${session.session_id}`)} style={{ padding: '1rem' }}>
-                                                {formatSecondsToTime(session.bot_start_seconds)}
-                                            </td>
-                                            <td className="clickable-cell" onClick={() => navigate(`/session/${session.session_id}`)} style={{ padding: '1rem' }}>
-                                                {session.conversation_count}
+                                            <td style={{ padding: '1rem', maxWidth: '350px' }}>
+                                                {/* If session has a summary, show it */}
+                                                {session.summary ? (
+                                                    <span style={{ fontSize: '0.85rem', color: '#555', lineHeight: '1.4' }}>
+                                                        {session.summary}
+                                                    </span>
+                                                ) : session.conversation_count === 0 || !session.conversation_count ? (
+                                                    /* No turns - user didn't speak */
+                                                    <span style={{ fontSize: '0.85rem', color: '#888', fontStyle: 'italic' }}>
+                                                        User did not speak anything
+                                                    </span>
+                                                ) : !session.ended_at ? (
+                                                    /* Session still active */
+                                                    <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontStyle: 'italic' }}>
+                                                        ⏳ Waiting for user to end session...
+                                                    </span>
+                                                ) : (
+                                                    /* Session ended but no summary - show generate button */
+                                                    <button
+                                                        className="btn-generate-summary"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleGenerateSummary(session.session_id);
+                                                        }}
+                                                        disabled={generatingSummary[session.session_id]}
+                                                        style={{
+                                                            padding: '0.4rem 0.8rem',
+                                                            fontSize: '0.8rem',
+                                                            background: generatingSummary[session.session_id] ? '#ccc' : 'var(--primary)',
+                                                            color: 'white',
+                                                            border: 'none',
+                                                            borderRadius: '4px',
+                                                            cursor: generatingSummary[session.session_id] ? 'not-allowed' : 'pointer',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '0.3rem'
+                                                        }}
+                                                    >
+                                                        <RefreshCw size={14} className={generatingSummary[session.session_id] ? 'spin' : ''} />
+                                                        {generatingSummary[session.session_id] ? 'Generating...' : 'Generate Summary'}
+                                                    </button>
+                                                )}
                                             </td>
                                             <td className="download-cell" style={{ padding: '1rem' }}>
                                                 <div className="dropdown-container">
@@ -375,7 +427,7 @@ export default function AgentDetails() {
                                             </td>
                                         </tr>
                                     ))}
-                                    {sessions.length === 0 && !loading && <tr><td colSpan="7" className="text-center" style={{ padding: '2rem' }}>No sessions found.</td></tr>}
+                                    {sessions.length === 0 && !loading && <tr><td colSpan="5" className="text-center" style={{ padding: '2rem' }}>No sessions found.</td></tr>}
                                 </tbody>
                             </table>
                         </div>

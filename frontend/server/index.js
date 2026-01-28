@@ -2,11 +2,16 @@ import 'dotenv/config';
 import express from 'express';
 import pg from 'pg';
 import cors from 'cors';
+import axios from 'axios';
 
 const { Pool } = pg;
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// OpenAI Configuration
+const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // --- DATABASE CONNECTION ---
 // --- DATABASE CONNECTION ---
@@ -159,13 +164,19 @@ app.get('/api/sessions', async (req, res) => {
         const offset = (pageNum - 1) * limitNum;
         const dbSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-        let query = `SELECT * FROM "Sessions" WHERE agent_id = $1`;
+        // Join with Conversations to get summary
+        let query = `
+            SELECT s.*, c.summary 
+            FROM "Sessions" s 
+            LEFT JOIN "Conversations" c ON s.session_id = c.session_id
+            WHERE s.agent_id = $1
+        `;
         let params = [agent_id];
         let paramCount = 1;
 
         if (search) {
             paramCount++;
-            query += ` AND session_id ILIKE $${paramCount}`;
+            query += ` AND s.session_id ILIKE $${paramCount}`;
             params.push(`%${search}%`);
         }
 
@@ -181,7 +192,7 @@ app.get('/api/sessions', async (req, res) => {
             WHERE agent_id = $1
         `;
 
-        query += ` ORDER BY "${sortBy}" ${dbSortOrder} LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+        query += ` ORDER BY s."${sortBy}" ${dbSortOrder} LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
         params.push(limitNum, offset);
 
         const [dataRes, countRes, agentStatsRes] = await Promise.all([
@@ -212,6 +223,80 @@ app.get('/api/sessions', async (req, res) => {
     } catch (error) {
         console.error("Error fetching sessions:", error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Generate Summary for a Session (on-demand)
+app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
+    const { sessionId } = req.params;
+
+    if (!OPENAI_API_KEY) {
+        return res.status(500).json({ error: 'OpenAI API key not configured' });
+    }
+
+    try {
+        // Fetch conversation
+        const convResult = await pool.query('SELECT * FROM "Conversations" WHERE session_id = $1', [sessionId]);
+        if (convResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Conversation not found' });
+        }
+
+        const conversation = convResult.rows[0];
+        const turns = conversation.turns || [];
+
+        if (turns.length === 0) {
+            return res.status(400).json({ error: 'No conversation turns to summarize' });
+        }
+
+        // Format conversation for the prompt
+        const conversationText = turns.map((t) => {
+            let text = `User: ${t.user_message || '(empty)'}`;
+            if (t.assistant_message) {
+                text += `\nAssistant: ${t.assistant_message}`;
+            }
+            return text;
+        }).join('\n---\n');
+
+        const systemPrompt = `You are an expert at summarizing customer service conversations.
+Write a simple, easy-to-understand summary in 50 words or less.
+Use simple English that anyone can understand.
+Focus on: what the user asked about, what help was given, and how it ended.
+Avoid technical words. Be clear and friendly.`;
+
+        // Call OpenAI
+        const openaiResponse = await axios.post(
+            OPENAI_API_URL,
+            {
+                model: 'gpt-4o-mini',
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: conversationText }
+                ],
+                max_tokens: 100,
+                temperature: 0.3
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                timeout: 30000
+            }
+        );
+
+        const summary = openaiResponse.data?.choices?.[0]?.message?.content?.trim();
+
+        if (!summary) {
+            return res.status(500).json({ error: 'Failed to generate summary' });
+        }
+
+        // Save to database
+        await pool.query('UPDATE "Conversations" SET summary = $1 WHERE session_id = $2', [summary, sessionId]);
+
+        res.json({ summary });
+    } catch (error) {
+        console.error('Summary generation error:', error.message);
+        res.status(500).json({ error: 'Failed to generate summary: ' + error.message });
     }
 });
 
