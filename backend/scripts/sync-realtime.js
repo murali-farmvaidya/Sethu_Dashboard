@@ -355,6 +355,9 @@ async function syncConversations(client, agents) {
                 if (turns.length === 0) continue;
 
                 const time = contextTime; // Use context time as main reference
+                const parentSession = await Session.findOne({ where: { session_id: sessionId } });
+                if (!parentSession) continue;
+
                 const existing = await Conversation.findOne({ where: { session_id: sessionId } });
 
                 // Check if we have new content to save (specifically missing assistant response)
@@ -367,12 +370,16 @@ async function syncConversations(client, agents) {
                     }
                 }
 
-                // Skip if conversation exists with same turn count and is up to date, unless we found missing content
-                if (existing && existing.turns.length === turns.length && existing.last_message_at >= time && !isContentMissing) {
+                // Check if we need to generate a summary (Session ended, but no summary in DB)
+                const needsSummary = existing && !existing.summary && parentSession.ended_at;
+
+                // Skip ONLY if:
+                // 1. Data matches (turns & time)
+                // 2. No missing content identified
+                // 3. No summary generation needed
+                if (existing && existing.turns.length === turns.length && existing.last_message_at >= time && !isContentMissing && !needsSummary) {
                     continue;
                 }
-
-                const parentSession = await Session.findOne({ where: { session_id: sessionId } });
                 if (!parentSession) continue;
 
                 // Generate summary for sessions that:
