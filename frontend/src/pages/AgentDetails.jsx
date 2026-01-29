@@ -18,6 +18,7 @@ export default function AgentDetails() {
     const [sortBy, setSortBy] = useState('started_at');
     const [sortOrder, setSortOrder] = useState('desc');
     const [successRate, setSuccessRate] = useState(0);
+    const [totalDuration, setTotalDuration] = useState(0);
     const [zeroTurnsCount, setZeroTurnsCount] = useState(0);
     const [agentCreatedAt, setAgentCreatedAt] = useState(null);
     const [agentLastSynced, setAgentLastSynced] = useState(null);
@@ -47,6 +48,7 @@ export default function AgentDetails() {
                 // Use server-provided stats if available
                 if (res.data.stats) {
                     setSuccessRate(res.data.stats.successRate);
+                    setTotalDuration(res.data.stats.totalDuration || 0);
                     setZeroTurnsCount(res.data.stats.zeroTurns || 0);
                 }
             } else {
@@ -54,6 +56,7 @@ export default function AgentDetails() {
                 setTotalPages(1);
                 setTotalSessions(0);
                 setSuccessRate(0);
+                setTotalDuration(0);
                 setZeroTurnsCount(0);
             }
         } catch (err) {
@@ -281,9 +284,14 @@ export default function AgentDetails() {
                     </div>
 
                     <div className="info-row">
-                        <span className="info-label">Success Rate</span>
+                        <span className="info-label">Total Duration</span>
                         {/* Note: Server-provided stats */}
-                        <span className="info-value">{successRate}%</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                            <span className="info-value">{Math.floor(totalDuration / 60)} min</span>
+                            <span style={{ fontSize: '0.7rem', color: '#666', marginTop: '2px' }}>
+                                Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        </div>
                     </div>
 
                     <div className="info-row">
@@ -329,9 +337,6 @@ export default function AgentDetails() {
                             </button>
                             <button className="btn-sort" onClick={() => handleSort('duration_seconds')}>
                                 <ArrowUpDown size={16} /> Duration {sortBy === 'duration_seconds' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
-                            </button>
-                            <button className="btn-sort" onClick={() => handleSort('conversation_count')}>
-                                <ArrowUpDown size={16} /> Turns {sortBy === 'conversation_count' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                             </button>
                         </div>
                     </div>

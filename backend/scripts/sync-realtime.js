@@ -14,11 +14,13 @@ require('dotenv').config();
 const { DataTypes } = require('sequelize');
 const { sequelize, testConnection } = require(path.join(__dirname, '../src/config/database'));
 const PipecatClient = require(path.join(__dirname, '../src/config/pipecat'));
+const { getTableName, logEnvironmentInfo } = require(path.join(__dirname, '../src/config/tables'));
 const logger = require(path.join(__dirname, '../src/utils/logger'));
 const {
     extractSessionId,
     parseContextLog,
-    parseTTSLog
+    parseTTSLog,
+    normalizeLogs
 } = require(path.join(__dirname, '../src/services/pipecat_normalization'));
 const { generateSummary } = require(path.join(__dirname, '../src/services/summary.service'));
 
@@ -68,7 +70,7 @@ const Agent = sequelize.define('Agent', {
     deployment: DataTypes.JSONB,
     agent_profile: DataTypes.STRING
 }, {
-    tableName: 'Agents',
+    tableName: getTableName('Agents'),
     timestamps: false,  // Disable auto-management
     underscored: true
 });
@@ -110,7 +112,7 @@ const Session = sequelize.define('Session', {
         defaultValue: DataTypes.NOW
     }
 }, {
-    tableName: 'Sessions',
+    tableName: getTableName('Sessions'),
     timestamps: true,
     underscored: true
 });
@@ -139,7 +141,7 @@ const Conversation = sequelize.define('Conversation', {
         defaultValue: DataTypes.NOW
     }
 }, {
-    tableName: 'Conversations',
+    tableName: getTableName('Conversations'),
     timestamps: true,
     underscored: true
 });
@@ -266,8 +268,8 @@ async function syncConversations(client, agents) {
             ? new Date(latestConversation.last_message_at.getTime() - (5 * 60 * 1000))
             : SYNC_START_DATE;
 
-        // FETCH PAGE 1 TO DETECT ORDER
-        const initialResponse = await client.getAgentLogs(agent.name, null, 1, 100, 'Generating chat');
+        // FETCH PAGE 1 TO DETECT ORDER (Fetch all logs to ensure we see user speaking/stops and RAG messages)
+        const initialResponse = await client.getAgentLogs(agent.name, null, 1, 100);
         const initialLogs = initialResponse.data || [];
         if (initialLogs.length === 0) continue;
 
@@ -280,81 +282,63 @@ async function syncConversations(client, agents) {
 
         let page = isAscending ? totalPages : 1;
         let stopFetchingForAgent = false;
-        const sessionContexts = new Map();
+        const sessionLogs = new Map(); // Store ALL logs per session
 
         while (page >= 1 && !stopFetchingForAgent) {
-            const response = (page === 1) ? initialResponse : await client.getAgentLogs(agent.name, null, page, 100, 'Generating chat');
-            const logs = response.data || [];
+            try {
+                const response = (page === 1) ? initialResponse : await client.getAgentLogs(agent.name, null, page, 100);
+                const logs = response.data || [];
 
-            // If Ascending, we process the page backwards (newest in page first)
-            const logsToProcess = isAscending ? [...logs].reverse() : logs;
+                if (logs.length === 0) break;
 
-            for (const log of logsToProcess) {
-                const logTime = new Date(log.timestamp);
+                // If Ascending, we process the page backwards (newest in page first)
+                const logsToProcess = isAscending ? [...logs].reverse() : logs;
 
-                if (logTime < stopThreshold) {
-                    stopFetchingForAgent = true;
-                    break;
-                }
+                for (const log of logsToProcess) {
+                    const logTime = new Date(log.timestamp);
 
-                const msg = log.log || '';
-                const sessionId = extractSessionId(msg);
-                if (!sessionId) continue;
-
-                if (!sessionContexts.has(sessionId)) {
-                    // ttsLogs will be an array of { msg, time }
-                    sessionContexts.set(sessionId, { contextLog: null, contextTime: null, ttsLogs: [], isUniversal: false });
-                }
-                const current = sessionContexts.get(sessionId);
-
-                // Handle Context Log
-                if (msg.includes('context [')) {
-                    const isUniversal = msg.includes('universal context');
-
-                    if (!current.contextLog || (isUniversal && !current.isUniversal) || (isUniversal === current.isUniversal && logTime > current.contextTime)) {
-                        current.contextLog = msg;
-                        current.contextTime = logTime;
-                        current.isUniversal = isUniversal;
+                    if (logTime < stopThreshold) {
+                        stopFetchingForAgent = true;
+                        break;
                     }
+
+                    const msg = log.log || '';
+                    const sessionId = extractSessionId(msg);
+                    if (!sessionId) continue;
+
+                    // Store ALL logs for this session (not just context/TTS)
+                    if (!sessionLogs.has(sessionId)) {
+                        sessionLogs.set(sessionId, []);
+                    }
+
+                    sessionLogs.get(sessionId).push({
+                        log: msg,
+                        timestamp: log.timestamp
+                    });
                 }
 
-                // Handle TTS Log (capture potential final responses)
-                if (msg.includes('Generating TTS [')) {
-                    current.ttsLogs.push({ msg, time: logTime });
-                }
+                if (isAscending) page--; else page++;
+                if (page === 0) break;
+                await client.delay(100);
+            } catch (fetchError) {
+                logger.error(`⚠️ Stopping log fetch for ${agent.name} at page ${page} due to error: ${fetchError.message}`);
+                // Continue to processing with what we have
+                break;
             }
-
-            if (isAscending) page--; else page++;
-            if (page === 0) break;
-            await client.delay(100);
         }
 
-        for (const [sessionId, { contextLog, contextTime, ttsLogs }] of sessionContexts) {
+        // Process each session's logs using the normalization layer
+        for (const [sessionId, logs] of sessionLogs) {
             try {
-                if (!contextLog) continue;
+                if (!logs || logs.length === 0) continue;
 
-                const turns = parseContextLog(contextLog);
-
-                // Get all TTS logs that happened AFTER the last context log
-                // Sort by time to ensure correct order of speech
-                const recentTTS = (ttsLogs || [])
-                    .filter(t => t.time > contextTime)
-                    .sort((a, b) => a.time - b.time);
-
-                if (recentTTS.length > 0) {
-                    const lastTurn = turns[turns.length - 1];
-                    const messages = recentTTS.map(t => parseTTSLog(t.msg)).filter(m => m);
-
-                    if (messages.length > 0 && lastTurn && !lastTurn.assistant_message) {
-                        const finalMessage = messages.join(' ');
-                        logger.info(`Found missing final response(s) for ${sessionId}, appending: "${finalMessage}"`);
-                        lastTurn.assistant_message = finalMessage;
-                    }
-                }
+                // Use the smart normalization function that detects format dynamically
+                const turns = normalizeLogs(logs);
 
                 if (turns.length === 0) continue;
 
-                const time = contextTime; // Use context time as main reference
+                // Use the timestamp from the most recent turn
+                const time = turns[turns.length - 1].timestamp || new Date();
                 const parentSession = await Session.findOne({ where: { session_id: sessionId } });
                 if (!parentSession) continue;
 
@@ -451,6 +435,7 @@ async function runSyncCycle() {
 
 async function main() {
     logger.info('🚀 Starting Realtime Dashboard Sync Service (PostgreSQL)');
+    logEnvironmentInfo(); // Show which tables we're using
     logger.info(`📅 Filtering data from: ${SYNC_START_DATE.toISOString()}`);
 
     try {

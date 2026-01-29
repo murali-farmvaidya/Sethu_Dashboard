@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../api/client';
 import { useNavigate } from 'react-router-dom';
-import { Users, MessageSquare, TrendingUp, Search, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -125,10 +125,15 @@ export default function Dashboard() {
                         </div>
                     </div>
                     <div className="stat-card-vertical">
-                        <div className="stat-icon"><TrendingUp size={24} /></div>
+                        <div className="stat-icon"><Clock size={24} /></div>
                         <div className="stat-info">
-                            <p className="stat-value">{stats.successRate || 0}%</p>
-                            <p className="stat-label">Success Rate</p>
+                            <p className="stat-value">
+                                {Math.floor((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
+                            </p>
+                            <p className="stat-label">Total Usage</p>
+                            <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
+                                Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </p>
                         </div>
                     </div>
                 </div>

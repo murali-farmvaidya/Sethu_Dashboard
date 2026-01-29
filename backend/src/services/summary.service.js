@@ -35,7 +35,15 @@ async function generateSummary(turns) {
 
     const systemPrompt = `You are an expert at summarizing customer service conversations.
 Write a simple, easy-to-understand summary in 50 words or less.
-Use simple English that anyone can understand.
+
+IMPORTANT LANGUAGE INSTRUCTION:
+- Analyze the language(s) used in the conversation below
+- If the user speaks primarily in Telugu, write the summary in Telugu
+- If the user speaks primarily in Hindi, write the summary in Hindi  
+- If the user speaks primarily in English, write the summary in English
+- If multiple languages are used, choose the language the USER spoke the most
+- The summary MUST be in the same language as the user's primary language
+
 Focus on: what the user asked about, what help was given, and how it ended.
 Avoid technical words. Be clear and friendly.`;
 
