@@ -1,0 +1,46 @@
+[
+  {
+    "user_id": "admin_1",
+    "email": "admin@farmvaidya.ai",
+    "role": "admin",
+    "password": "FarmVaidya@2026!Admin",
+    "subscription_tier": "enterprise",
+    "is_active": true,
+    "created_at": "2026-01-30T09:43:13.949Z",
+    "must_change_password": false,
+    "agents": []
+  },
+  {
+    "user_id": "user_1769768593299",
+    "email": "muralijay360@gmail.com",
+    "role": "user",
+    "subscription_tier": "free",
+    "is_active": true,
+    "created_at": "2026-01-30T10:23:13.299Z",
+    "must_change_password": false,
+    "password": "Leo@123",
+    "agents": [
+      "bac0558d-1542-4c55-87a4-213c2b824f67",
+      "fa61226c-e80a-4f1d-b622-21be4f6b2abb",
+      "d4f3e742-1c9e-4e7a-ad01-3a816596d78e",
+      "39a14cef-e5e1-4468-9819-5a5597ef7c46"
+    ],
+    "reset_token": null,
+    "token_expiry": null
+  },
+  {
+    "user_id": "user_1769771822467",
+    "email": "harikowshik918@gmail.com",
+    "role": "user",
+    "subscription_tier": "free",
+    "is_active": true,
+    "created_at": "2026-01-30T11:17:02.467Z",
+    "must_change_password": true,
+    "password": "Password123!",
+    "agents": [
+      "fa61226c-e80a-4f1d-b622-21be4f6b2abb"
+    ],
+    "reset_token": "wcz8gg5gilhx1x3umpfz3g",
+    "token_expiry": 1770029514419
+  }
+]

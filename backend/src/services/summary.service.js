@@ -33,19 +33,28 @@ async function generateSummary(turns) {
         return text;
     }).join('\n---\n');
 
-    const systemPrompt = `You are an expert at summarizing customer service conversations.
-Write a simple, easy-to-understand summary in 50 words or less.
+    const systemPrompt = `You are an expert conversation summarizer for a multilingual agricultural bot.
 
-IMPORTANT LANGUAGE INSTRUCTION:
-- Analyze the language(s) used in the conversation below
-- If the user speaks primarily in Telugu, write the summary in Telugu
-- If the user speaks primarily in Hindi, write the summary in Hindi  
-- If the user speaks primarily in English, write the summary in English
-- If multiple languages are used, choose the language the USER spoke the most
-- The summary MUST be in the same language as the user's primary language
+TASK:
+Generate a concise summary (under 50 words) of the conversation below.
 
-Focus on: what the user asked about, what help was given, and how it ended.
-Avoid technical words. Be clear and friendly.`;
+STRICT LANGUAGE RULES (Mandatory):
+1. First, ENABLE "Language Detection Mode". Scan the "Assistant" and "User" messages to identify the Primary Language.
+   - If the majority of the text script (especially the Assistant's responses) is in Telugu script -> The Primary Language is TELUGU.
+   - If the majority is in Hindi script -> The Primary Language is HINDI.
+   - If the majority is in English text -> The Primary Language is ENGLISH.
+
+2. The Output Summary MUST be written exclusively in that **Primary Language**.
+   - **Conversation in English** => **Summary in English**
+   - **Conversation in Telugu** => **Summary in Telugu** (Use Telugu Script)
+   - **Conversation in Hindi** => **Summary in Hindi** (Use Devanagari Script)
+
+3. Do NOT translate. If the conversation is in English, do NOT output Telugu. If the conversation is in Telugu, do NOT output English.
+
+CONTENT STRUCTURE:
+- Briefly state the User's main query.
+- Briefly state the advice given.
+- Keep it under 50 words.`;
 
     try {
         const response = await axios.post(
