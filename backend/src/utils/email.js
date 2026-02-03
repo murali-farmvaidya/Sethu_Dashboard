@@ -11,7 +11,7 @@ const EMAIL_HOST = process.env.EMAIL_HOST || 'smtp.gmail.com';
 const EMAIL_PORT = process.env.EMAIL_PORT || 587;
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
-const EMAIL_FROM = process.env.EMAIL_FROM || 'Sethu Dashboard <noreply@sethu.ai>';
+const EMAIL_FROM = process.env.EMAIL_FROM || 'Sevak Dashboard <noreply@sevak.ai>';
 
 // Create transporter
 let transporter = null;
@@ -74,11 +74,11 @@ async function sendWelcomeEmail(email, temporaryPassword, agents = []) {
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>Welcome to Sethu Dashboard</h1>
+                    <h1>Welcome to Sevak Dashboard</h1>
                 </div>
                 <div class="content">
                     <p>Hi there,</p>
-                    <p>An administrator has created an account for you on <strong>Sethu Dashboard</strong>.</p>
+                    <p>An administrator has created an account for you on <strong>Sevak Dashboard</strong>.</p>
                     
                     <div class="credentials">
                         <h3>Your Login Credentials:</h3>
@@ -96,7 +96,7 @@ async function sendWelcomeEmail(email, temporaryPassword, agents = []) {
                     <p>If you have any questions, please contact your administrator.</p>
                     
                     <div class="footer">
-                        <p>Best regards,<br>Sethu Dashboard Team</p>
+                        <p>Best regards,<br>Sevak Dashboard Team</p>
                         <p>This is an automated email. Please do not reply.</p>
                     </div>
                 </div>
@@ -109,7 +109,7 @@ async function sendWelcomeEmail(email, temporaryPassword, agents = []) {
         const info = await transporter.sendMail({
             from: EMAIL_FROM,
             to: email,
-            subject: 'Welcome to Sethu Dashboard - Your Account Credentials',
+            subject: 'Welcome to Sevak Dashboard - Your Account Credentials',
             html: htmlContent
         });
 
@@ -160,7 +160,7 @@ async function sendPasswordResetEmail(email, resetToken) {
                 </div>
                 <div class="content">
                     <p>Hi,</p>
-                    <p>We received a request to reset your password for your Sethu Dashboard account.</p>
+                    <p>We received a request to reset your password for your Sevak Dashboard account.</p>
                     
                     <a href="${resetLink}" class="button">Reset Your Password</a>
                     
@@ -174,7 +174,7 @@ async function sendPasswordResetEmail(email, resetToken) {
                     <p style="color: #666; font-size: 12px; word-break: break-all;">${resetLink}</p>
                     
                     <div class="footer">
-                        <p>Best regards,<br>Sethu Dashboard Team</p>
+                        <p>Best regards,<br>Sevak Dashboard Team</p>
                         <p>This is an automated email. Please do not reply.</p>
                     </div>
                 </div>
@@ -187,7 +187,7 @@ async function sendPasswordResetEmail(email, resetToken) {
         const info = await transporter.sendMail({
             from: EMAIL_FROM,
             to: email,
-            subject: 'Reset Your Sethu Dashboard Password',
+            subject: 'Reset Your Sevak Dashboard Password',
             html: htmlContent
         });
 

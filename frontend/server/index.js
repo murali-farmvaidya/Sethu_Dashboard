@@ -1338,7 +1338,7 @@ app.post('/api/users/:userId/reset-password', async (req, res) => {
                 await transporter.sendMail({
                     from: process.env.SMTP_FROM || '"FarmVaidya Admin" <admin@farmvaidya.ai>',
                     to: user.email,
-                    subject: 'Reset Your Password - Sethu Dashboard',
+                    subject: 'Reset Your Password - Sevak Dashboard',
                     html: `
                         <h3>Password Reset Request</h3>
                         <p>Hello,</p>

@@ -31,7 +31,7 @@ async function initializeSystem(req, res) {
         logger.info(`   - ${PasswordResetToken.tableName}`);
 
         // Check for default admin
-        const adminEmail = 'admin@sethu.ai';
+        const adminEmail = 'admin@sevak.ai';
         let adminCreated = false;
         let adminExists = false;
 
@@ -77,7 +77,7 @@ async function initializeSystem(req, res) {
             nextSteps: [
                 'Update EMAIL_USER and EMAIL_PASSWORD in .env for email functionality',
                 'Change JWT_SECRET to a strong random value in production',
-                adminCreated ? 'Login with admin@sethu.ai / Admin@123 and change the password' : 'Login with your existing admin credentials'
+                adminCreated ? 'Login with admin@sevak.ai / Admin@123 and change the password' : 'Login with your existing admin credentials'
             ]
         });
 

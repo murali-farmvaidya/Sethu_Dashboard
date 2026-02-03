@@ -97,7 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at ON "PasswordRese
 -- Note: This hash is for development only. Change in production!
 INSERT INTO "Users" (email, password_hash, role, is_active, must_change_password)
 VALUES (
-    'admin@sethu.ai',
+    'admin@sevak.ai',
     '$2b$10$rZ3qJQXXKQOZKZYZ5YZ5YOqJQXXKQOZKZYZ5YZ5YOqJQXXKQOZKZ.',
     'admin',
     true,

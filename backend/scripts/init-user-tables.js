@@ -43,7 +43,7 @@ async function initializeUserTables() {
 
         // Create default admin user if not exists
         logger.info('👤 Checking for default admin user...');
-        const adminEmail = 'admin@sethu.ai';
+        const adminEmail = 'admin@sevak.ai';
         const existingAdmin = await User.findOne({ where: { email: adminEmail } });
 
         if (!existingAdmin) {
@@ -71,7 +71,7 @@ async function initializeUserTables() {
         logger.info('Next steps:');
         logger.info('1. Update EMAIL_USER and EMAIL_PASSWORD in .env for email functionality');
         logger.info('2. Change JWT_SECRET to a strong random value in production');
-        logger.info('3. Login with admin@sethu.ai / Admin@123 and change the password');
+        logger.info('3. Login with admin@sevak.ai / Admin@123 and change the password');
 
         process.exit(0);
 
