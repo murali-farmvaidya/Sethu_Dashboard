@@ -961,7 +961,7 @@ app.post('/api/users', async (req, res) => {
                         <p><strong>Username:</strong> ${email}</p>
                         <p><strong>Password:</strong> ${password}</p>
                         <p>Please login and change your password immediately.</p>
-                        <p><a href="http://localhost:5173/login">Login to Dashboard</a></p>
+                        <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/login">Login to Dashboard</a></p>
                     `
                 });
             } catch (emailErr) {
