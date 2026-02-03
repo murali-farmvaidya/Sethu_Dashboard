@@ -353,12 +353,13 @@ h6 {
 
 .badge {
   background: var(--secondary);
-  color: black;
-  padding: 0.25rem 0.75rem;
+  color: #000;
+  padding: 0.25rem 0.875rem;
   border-radius: 9999px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
   margin-bottom: 0.75rem;
+  box-shadow: 0 2px 4px rgba(255, 193, 7, 0.2);
 }
 
 /* ==================== PAGINATION ==================== */
@@ -903,18 +904,19 @@ h6 {
 .btn-primary {
   width: 100%;
   padding: 0.875rem;
-  background: var(--primary);
+  background: linear-gradient(135deg, #008F4B 0%, #006837 100%);
   color: white;
   border: none;
   border-radius: 8px;
   font-weight: 600;
   cursor: pointer;
   font-size: 1rem;
-  transition: background-color 0.2s;
+  transition: transform 0.2s, background-color 0.2s;
 }
 
 .btn-primary:hover {
-  background: #00753e;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 143, 75, 0.2);
 }
 
 .btn-icon {
@@ -1146,6 +1148,7 @@ h6 {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }

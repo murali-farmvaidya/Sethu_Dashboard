@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../api/client';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, User, Bot, Download, Copy, Check, ChevronDown } from 'lucide-react';
+import Header from '../components/Header';
 
 export default function SessionDetails() {
     const { sessionId } = useParams();
@@ -156,151 +157,154 @@ export default function SessionDetails() {
     if (loading) return <div className="loading">Loading conversation...</div>;
 
     return (
-        <div className="dashboard-layout">
-            {/* Left Sidebar - Session Info */}
-            <aside className="dashboard-sidebar">
-                <div className="sidebar-header">
-                    <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
-                </div>
+        <>
+            <Header />
+            <div className="dashboard-layout">
+                {/* Left Sidebar - Session Info */}
+                <aside className="dashboard-sidebar">
+                    <div className="sidebar-header">
+                        <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
+                    </div>
 
-                <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
-                    <h3 style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '1.1rem' }}>Session Details</h3>
+                    <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
+                        <h3 style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '1.1rem' }}>Session Details</h3>
 
-                    <div className="info-row">
-                        <span className="info-label">Agent Name</span>
-                        <span className="info-value">{conversation?.agent_name || session?.agent_name || '-'}</span>
+                        <div className="info-row">
+                            <span className="info-label">Agent Name</span>
+                            <span className="info-value">{conversation?.agent_name || session?.agent_name || '-'}</span>
+                        </div>
+                        <div className="info-row">
+                            <span className="info-label">Session ID</span>
+                            <span className="info-value font-mono" style={{ fontSize: '0.8rem' }}>{sessionId}</span>
+                        </div>
+                        <div className="info-row">
+                            <span className="info-label">Started</span>
+                            <span className="info-value">{formatDateTime(session?.started_at || conversation?.first_message_at)}</span>
+                        </div>
+                        <div className="info-row">
+                            <span className="info-label">Ended</span>
+                            <span className="info-value">{formatDateTime(session?.ended_at || conversation?.last_message_at)}</span>
+                        </div>
+                        <div className="info-row">
+                            <span className="info-label">Duration</span>
+                            <span className="info-value">{formatSecondsToTime(session?.duration_seconds)}</span>
+                        </div>
+                        <div className="info-row">
+                            <span className="info-label">Startup Time</span>
+                            <span className="info-value">{formatSecondsToTime(session?.bot_start_seconds)}</span>
+                        </div>
+                        <div className="info-row">
+                            <span className="info-label">Total Turns</span>
+                            <span className="info-value">{conversation?.total_turns || conversation?.turns?.length || 0}</span>
+                        </div>
+                        <div className="info-row">
+                            <span className="info-label">Last Synced</span>
+                            <span className="info-value">{formatDateTime(session?.last_synced)}</span>
+                        </div>
                     </div>
-                    <div className="info-row">
-                        <span className="info-label">Session ID</span>
-                        <span className="info-value font-mono" style={{ fontSize: '0.8rem' }}>{sessionId}</span>
-                    </div>
-                    <div className="info-row">
-                        <span className="info-label">Started</span>
-                        <span className="info-value">{formatDateTime(session?.started_at || conversation?.first_message_at)}</span>
-                    </div>
-                    <div className="info-row">
-                        <span className="info-label">Ended</span>
-                        <span className="info-value">{formatDateTime(session?.ended_at || conversation?.last_message_at)}</span>
-                    </div>
-                    <div className="info-row">
-                        <span className="info-label">Duration</span>
-                        <span className="info-value">{formatSecondsToTime(session?.duration_seconds)}</span>
-                    </div>
-                    <div className="info-row">
-                        <span className="info-label">Startup Time</span>
-                        <span className="info-value">{formatSecondsToTime(session?.bot_start_seconds)}</span>
-                    </div>
-                    <div className="info-row">
-                        <span className="info-label">Total Turns</span>
-                        <span className="info-value">{conversation?.total_turns || conversation?.turns?.length || 0}</span>
-                    </div>
-                    <div className="info-row">
-                        <span className="info-label">Last Synced</span>
-                        <span className="info-value">{formatDateTime(session?.last_synced)}</span>
-                    </div>
-                </div>
 
-                <div className="sidebar-footer">
-                    <button className="btn-logout" onClick={() => navigate(-1)}>
-                        <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back to Dashboard
-                    </button>
-                </div>
-            </aside>
+                    <div className="sidebar-footer">
+                        <button className="btn-logout" onClick={() => navigate(-1)}>
+                            <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back to Dashboard
+                        </button>
+                    </div>
+                </aside>
 
-            {/* Main Content - Conversations */}
-            {/* Main Content - Conversations */}
-            <main className="dashboard-main" style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100vh',
-                overflowY: 'hidden',
-                padding: 0,
-                background: 'white'
-            }}>
-                <div className="dashboard-header" style={{
-                    padding: '2rem 2rem 0 2rem',
-                    marginBottom: '1rem',
-                    background: 'white'
-                }}>
-                    <h1>Conversation Logs</h1>
-                </div>
-
-                <div className="conversation-panel" style={{
-                    flex: 1,
+                {/* Main Content - Conversations */}
+                {/* Main Content - Conversations */}
+                <main className="dashboard-main" style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    overflowY: 'auto',
-                    border: 'none',
-                    boxShadow: 'none',
-                    borderRadius: 0,
-                    padding: '0 2rem 2rem 2rem'
+                    height: '100vh',
+                    overflowY: 'hidden',
+                    padding: 0,
+                    background: 'white'
                 }}>
-                    <div className="conversation-header">
-                        <div className="conversation-actions" style={{ marginLeft: 'auto' }}>
-                            <button className="btn-action" onClick={copyConversation} title="Copy conversation">
-                                {copied ? <Check size={18} /> : <Copy size={18} />}
-                                {copied ? 'Copied!' : 'Copy'}
-                            </button>
-                            <div className="dropdown-container">
-                                <button
-                                    className="btn-action"
-                                    onClick={() => setDownloadOpen(!downloadOpen)}
-                                >
-                                    <Download size={18} />
-                                    Download
-                                    <ChevronDown size={14} />
-                                </button>
-                                {downloadOpen && (
-                                    <div className="dropdown-menu">
-                                        <button onClick={() => downloadConversation('json')}>JSON</button>
-                                        <button onClick={() => downloadConversation('csv')}>CSV</button>
-                                        <button onClick={() => downloadConversation('txt')}>TXT</button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                    <div className="dashboard-header" style={{
+                        padding: '2rem 2rem 0 2rem',
+                        marginBottom: '1rem',
+                        background: 'white'
+                    }}>
+                        <h1>Conversation Logs</h1>
                     </div>
 
-                    {!conversation || !conversation.turns || conversation.turns.length === 0 ? (
-                        <div className="no-conversation">
-                            <p>No conversation logs found for this session.</p>
-                        </div>
-                    ) : (
-                        <div className="chat-container">
-                            {conversation.turns.map((turn, index) => (
-                                <div key={turn.turn_id || index} className="turn-block">
-                                    {/* User Message */}
-                                    {turn.user_message && (
-                                        <div className="message user-message">
-                                            <div className="avatar user-avatar"><User size={20} /></div>
-                                            <div className="content">
-                                                <div className="message-header">
-                                                    <span className="role-label">User</span>
-                                                    {/* Timestamp removed */}
-                                                </div>
-                                                <div className="bubble user-bubble">{turn.user_message}</div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {/* Bot Message */}
-                                    {turn.assistant_message && (
-                                        <div className="message bot-message">
-                                            <div className="avatar bot-avatar"><Bot size={20} /></div>
-                                            <div className="content">
-                                                <div className="message-header">
-                                                    <span className="role-label">Assistant</span>
-                                                    {/* Timestamp removed */}
-                                                </div>
-                                                <div className="bubble bot-bubble">{turn.assistant_message}</div>
-                                            </div>
+                    <div className="conversation-panel" style={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflowY: 'auto',
+                        border: 'none',
+                        boxShadow: 'none',
+                        borderRadius: 0,
+                        padding: '0 2rem 2rem 2rem'
+                    }}>
+                        <div className="conversation-header">
+                            <div className="conversation-actions" style={{ marginLeft: 'auto' }}>
+                                <button className="btn-action" onClick={copyConversation} title="Copy conversation">
+                                    {copied ? <Check size={18} /> : <Copy size={18} />}
+                                    {copied ? 'Copied!' : 'Copy'}
+                                </button>
+                                <div className="dropdown-container">
+                                    <button
+                                        className="btn-action"
+                                        onClick={() => setDownloadOpen(!downloadOpen)}
+                                    >
+                                        <Download size={18} />
+                                        Download
+                                        <ChevronDown size={14} />
+                                    </button>
+                                    {downloadOpen && (
+                                        <div className="dropdown-menu">
+                                            <button onClick={() => downloadConversation('json')}>JSON</button>
+                                            <button onClick={() => downloadConversation('csv')}>CSV</button>
+                                            <button onClick={() => downloadConversation('txt')}>TXT</button>
                                         </div>
                                     )}
                                 </div>
-                            ))}
+                            </div>
                         </div>
-                    )}
-                </div>
-            </main>
-        </div>
+
+                        {!conversation || !conversation.turns || conversation.turns.length === 0 ? (
+                            <div className="no-conversation">
+                                <p>No conversation logs found for this session.</p>
+                            </div>
+                        ) : (
+                            <div className="chat-container">
+                                {conversation.turns.map((turn, index) => (
+                                    <div key={turn.turn_id || index} className="turn-block">
+                                        {/* User Message */}
+                                        {turn.user_message && (
+                                            <div className="message user-message">
+                                                <div className="avatar user-avatar"><User size={20} /></div>
+                                                <div className="content">
+                                                    <div className="message-header">
+                                                        <span className="role-label">User</span>
+                                                        {/* Timestamp removed */}
+                                                    </div>
+                                                    <div className="bubble user-bubble">{turn.user_message}</div>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {/* Bot Message */}
+                                        {turn.assistant_message && (
+                                            <div className="message bot-message">
+                                                <div className="avatar bot-avatar"><Bot size={20} /></div>
+                                                <div className="content">
+                                                    <div className="message-header">
+                                                        <span className="role-label">Assistant</span>
+                                                        {/* Timestamp removed */}
+                                                    </div>
+                                                    <div className="bubble bot-bubble">{turn.assistant_message}</div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </main>
+            </div>
+        </>
     );
 }

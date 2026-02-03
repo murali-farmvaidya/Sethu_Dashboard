@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import api from '../api/client';
+import { adminAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
-import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
+import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown, Lock } from 'lucide-react';
+import Header from '../components/Header';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -20,17 +21,15 @@ export default function Dashboard() {
     const fetchAgents = useCallback(async () => {
         try {
             console.log('Fetching agents...');
-            const params = new URLSearchParams({
-                page: currentPage.toString(),
-                limit: ITEMS_PER_PAGE.toString(),
+            const params = {
+                page: currentPage,
+                limit: ITEMS_PER_PAGE,
                 sortBy: sortBy,
                 sortOrder: sortOrder,
                 search: searchTerm
-            });
+            };
 
-            const url = `/api/agents?${params.toString()}`;
-
-            const res = await api.get(url);
+            const res = await adminAPI.getAllAgents(params);
 
             // Handle response safely
             if (res.data && res.data.data && Array.isArray(res.data.data)) {
@@ -57,7 +56,7 @@ export default function Dashboard() {
 
     const fetchStats = useCallback(async () => {
         try {
-            const res = await api.get('/api/stats');
+            const res = await adminAPI.getStats();
             if (res.data) {
                 setStats(res.data);
             }
@@ -102,118 +101,129 @@ export default function Dashboard() {
     if (loading && agents.length === 0) return <div className="loading">Loading dashboard...</div>;
 
     return (
-        <div className="dashboard-layout">
-            {/* Left Sidebar */}
-            <aside className="dashboard-sidebar">
-                <div className="sidebar-header">
-                    <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
-                </div>
+        <>
+            <Header />
+            <div className="dashboard-layout">
+                {/* Left Sidebar */}
+                <aside className="dashboard-sidebar">
+                    <div className="sidebar-header">
+                        <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
+                    </div>
 
-                <div className="stats-vertical">
-                    <div className="stat-card-vertical">
-                        <div className="stat-icon"><Users size={24} /></div>
-                        <div className="stat-info">
-                            <p className="stat-value">{stats.totalAgents || 0}</p>
-                            <p className="stat-label">Total Agents</p>
+                    <div className="stats-vertical">
+                        <div className="stat-card-vertical">
+                            <div className="stat-icon"><Users size={24} /></div>
+                            <div className="stat-info">
+                                <p className="stat-value">{stats.totalAgents || 0}</p>
+                                <p className="stat-label">Total Agents</p>
+                            </div>
+                        </div>
+                        <div className="stat-card-vertical">
+                            <div className="stat-icon"><MessageSquare size={24} /></div>
+                            <div className="stat-info">
+                                <p className="stat-value">{stats.totalSessions || 0}</p>
+                                <p className="stat-label">Total Sessions</p>
+                            </div>
+                        </div>
+                        <div className="stat-card-vertical">
+                            <div className="stat-icon"><Clock size={24} /></div>
+                            <div className="stat-info">
+                                <p className="stat-value">
+                                    {Math.floor((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
+                                </p>
+                                <p className="stat-label">Total Usage</p>
+                                <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
+                                    Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                            </div>
                         </div>
                     </div>
-                    <div className="stat-card-vertical">
-                        <div className="stat-icon"><MessageSquare size={24} /></div>
-                        <div className="stat-info">
-                            <p className="stat-value">{stats.totalSessions || 0}</p>
-                            <p className="stat-label">Total Sessions</p>
-                        </div>
-                    </div>
-                    <div className="stat-card-vertical">
-                        <div className="stat-icon"><Clock size={24} /></div>
-                        <div className="stat-info">
-                            <p className="stat-value">
-                                {Math.floor((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
-                            </p>
-                            <p className="stat-label">Total Usage</p>
-                            <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
-                                Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                        </div>
-                    </div>
-                </div>
 
-                <div className="sidebar-footer">
-                    <button className="btn-logout" onClick={() => { localStorage.clear(); navigate('/login'); }}>
-                        Logout
-                    </button>
-                </div>
-            </aside>
-
-            {/* Main Content */}
-            <main className="dashboard-main">
-                <header className="dashboard-header">
-                    <h1>Sethu Admin Dashboard</h1>
-                </header>
-
-                {/* Search Bar */}
-                <div className="search-container">
-                    <Search size={20} className="search-icon" />
-                    <input
-                        type="text"
-                        className="search-input"
-                        placeholder="Search agents..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                </div>
-
-                {/* Sorting & Info */}
-                <div className="section-header">
-                    <h2 className="section-title">Agents Overview</h2>
-                    <div className="section-controls">
-                        <span className="section-count">{totalAgents} agents</span>
-                        <button className="btn-sort" onClick={() => handleSort('session_count')}>
-                            <ArrowUpDown size={16} />
-                            Sessions {sortBy === 'session_count' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+                    <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <button className="btn-logout" onClick={() => navigate('/change-password')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--text)' }}>
+                            <Lock size={18} /> Change Password
                         </button>
-                        <button className="btn-sort" onClick={() => handleSort('name')}>
-                            <ArrowUpDown size={16} />
-                            Name {sortBy === 'name' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+                        <button className="btn-logout" onClick={() => { localStorage.clear(); navigate('/login'); }}>
+                            Logout
                         </button>
                     </div>
-                </div>
+                </aside>
 
-                {/* Agents Grid */}
-                <div className="agents-grid">
-                    {Array.isArray(agents) && agents.map(agent => (
-                        <div key={agent.agent_id || agent._id} className="card agent-card" onClick={() => navigate(`/agent/${agent.agent_id}`)}>
-                            <h3 className="agent-name">{agent.name}</h3>
-                            <span className="badge">{agent.session_count || 0} Sessions</span>
-                            <p className="text-small text-muted agent-id">ID: {agent.agent_id}</p>
-                        </div>
-                    ))}
-                    {agents.length === 0 && !loading && <p className="text-center text-muted">No agents found.</p>}
-                </div>
+                {/* Main Content */}
+                <main className="dashboard-main">
+                    <header className="dashboard-header">
+                        <h1>Sethu Admin Dashboard</h1>
+                    </header>
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                    <div className="pagination">
-                        <button
-                            className="pagination-btn"
-                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                            disabled={currentPage === 1}
-                        >
-                            <ChevronLeft size={18} /> Prev
-                        </button>
-                        <div className="pagination-info">
-                            Page {currentPage} of {totalPages}
-                        </div>
-                        <button
-                            className="pagination-btn"
-                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                            disabled={currentPage === totalPages}
-                        >
-                            Next <ChevronRight size={18} />
-                        </button>
+                    {/* Search Bar */}
+                    <div className="search-container">
+                        <Search size={20} className="search-icon" />
+                        <input
+                            type="text"
+                            className="search-input"
+                            placeholder="Search agents..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
                     </div>
-                )}
-            </main>
-        </div>
+
+                    {/* Sorting & Info */}
+                    <div className="section-header">
+                        <h2 className="section-title">Agents Overview</h2>
+                        <div className="section-controls">
+                            <span className="section-count">{totalAgents} agents</span>
+                            <button className="btn-sort" onClick={() => handleSort('session_count')}>
+                                <ArrowUpDown size={16} />
+                                Sessions {sortBy === 'session_count' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+                            </button>
+                            <button className="btn-sort" onClick={() => handleSort('name')}>
+                                <ArrowUpDown size={16} />
+                                Name {sortBy === 'name' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Agents Grid */}
+                    <div className="agents-grid">
+                        {Array.isArray(agents) && agents.map(agent => (
+                            <div key={agent.agent_id || agent._id} className="card agent-card" onClick={() => navigate(`/admin/agent/${agent.agent_id}`)}>
+                                <h3 className="agent-name">{agent.name}</h3>
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
+                                    <span className="badge">{agent.session_count || 0} Sessions</span>
+                                    <span className="badge" style={{ background: '#FFC805', color: '#000' }}>
+                                        {Math.floor(parseInt(agent.computed_total_duration || 0) / 60)} Mins
+                                    </span>
+                                </div>
+                                <p className="text-small text-muted agent-id">ID: {agent.agent_id}</p>
+                            </div>
+                        ))}
+                        {agents.length === 0 && !loading && <p className="text-center text-muted">No agents found.</p>}
+                    </div>
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                        <div className="pagination">
+                            <button
+                                className="pagination-btn"
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                            >
+                                <ChevronLeft size={18} /> Prev
+                            </button>
+                            <div className="pagination-info">
+                                Page {currentPage} of {totalPages}
+                            </div>
+                            <button
+                                className="pagination-btn"
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                            >
+                                Next <ChevronRight size={18} />
+                            </button>
+                        </div>
+                    )}
+                </main>
+            </div>
+        </>
     );
 }
