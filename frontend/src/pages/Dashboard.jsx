@@ -152,7 +152,7 @@ export default function Dashboard() {
                 {/* Main Content */}
                 <main className="dashboard-main">
                     <header className="dashboard-header">
-                        <h1>Sethu Admin Dashboard</h1>
+                        <h1>Sevak Admin Dashboard</h1>
                     </header>
 
                     {/* Search Bar */}

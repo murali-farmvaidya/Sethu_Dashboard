@@ -40,7 +40,7 @@ export default function Login() {
         <div className="login-bg-image" style={{ backgroundImage: 'url(/loginpage.png)', backgroundSize: 'cover', backgroundPosition: 'center', opacity: 1 }}></div>
         <div className="login-overlay">
           <img src="/logo.png" alt="FarmVaidya" style={{ width: '200px', marginBottom: '1rem' }} />
-          <p style={{ marginTop: '10px', fontSize: '1.2rem', opacity: 0.8, color: 'white' }}>Sethu Dashboard</p>
+          <p style={{ marginTop: '10px', fontSize: '1.2rem', opacity: 0.8, color: 'white' }}>Sevak Dashboard</p>
         </div>
       </div>
 
