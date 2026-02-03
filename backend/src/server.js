@@ -40,6 +40,7 @@ app.get('/health', (req, res) => {
 // API Routes
 app.use('/api/setup', setupRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api', authRoutes); // Fallback for /api/login, /api/me etc.
 app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
 

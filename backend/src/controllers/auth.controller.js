@@ -18,18 +18,19 @@ const { v4: uuidv4 } = require('uuid');
  */
 async function login(req, res) {
     try {
-        const { email, password } = req.body;
+        const { email, username, password } = req.body;
+        const loginEmail = (email || username);
 
         // Validate input
-        if (!email || !password) {
+        if (!loginEmail || !password) {
             return res.status(400).json({
                 success: false,
-                error: 'Email and password are required'
+                error: 'Email/Username and password are required'
             });
         }
 
         // Find user
-        const user = await User.findOne({ where: { email: email.toLowerCase() } });
+        const user = await User.findOne({ where: { email: loginEmail.toLowerCase() } });
 
         if (!user) {
             return res.status(401).json({
@@ -73,7 +74,9 @@ async function login(req, res) {
         res.json({
             success: true,
             user: user.toSafeObject(),
-            ...tokens,
+            token: tokens.accessToken,
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
             mustChangePassword: user.must_change_password
         });
 
