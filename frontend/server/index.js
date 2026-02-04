@@ -31,10 +31,10 @@ const transporter = nodemailer.createTransport({
 
 // Exotel Service Configuration
 const exotelConfig = {
-    apiKey: process.env.EXOTEL_API_KEY,
-    apiToken: process.env.EXOTEL_API_TOKEN,
-    accountSid: process.env.EXOTEL_ACCOUNT_SID || 'farmvaidya1',
-    subdomain: process.env.EXOTEL_SUBDOMAIN || 'api.exotel.com'
+    apiKey: (process.env.EXOTEL_API_KEY || '').trim(),
+    apiToken: (process.env.EXOTEL_API_TOKEN || '').trim(),
+    accountSid: (process.env.EXOTEL_ACCOUNT_SID || 'farmvaidya1').trim(),
+    subdomain: (process.env.EXOTEL_SUBDOMAIN || 'api.exotel.com').trim()
 };
 
 const getExotelRecordingUrl = async (callSid, returnFull = false) => {
@@ -55,13 +55,17 @@ const getExotelRecordingUrl = async (callSid, returnFull = false) => {
             let recordingUrl = response.data.Call.PreSignedRecordingUrl || response.data.Call.RecordingUrl;
             let staticUrl = response.data.Call.RecordingUrl;
 
-            // Fix http -> https for browser compatibility
-            if (recordingUrl && recordingUrl.startsWith('http:')) {
-                recordingUrl = recordingUrl.replace('http:', 'https:');
-            }
-            if (staticUrl && staticUrl.startsWith('http:')) {
-                staticUrl = staticUrl.replace('http:', 'https:');
-            }
+            // Normalize domains and protocols
+            const normalize = (u) => {
+                if (!u) return u;
+                let normalized = u.replace('http:', 'https:');
+                // Force .com for recordings as .in often has DNS issues
+                normalized = normalized.replace('recordings.exotel.in', 'recordings.exotel.com');
+                return normalized;
+            };
+
+            recordingUrl = normalize(recordingUrl);
+            staticUrl = normalize(staticUrl);
 
             if (returnFull) {
                 return { recordingUrl, staticUrl };
@@ -86,12 +90,20 @@ app.get('/api/proxy-recording', async (req, res) => {
     }
 
     try {
+        let targetUrl = url;
+        // Force .com for recordings as .in often has DNS issues
+        if (targetUrl && targetUrl.includes('recordings.exotel.in')) {
+            targetUrl = targetUrl.replace('recordings.exotel.in', 'recordings.exotel.com');
+        }
+
+        console.log(`🔊 Proxying recording: ${targetUrl}`);
         const auth = Buffer.from(`${exotelConfig.apiKey}:${exotelConfig.apiToken}`).toString('base64');
         const response = await axios({
             method: 'get',
-            url: url,
+            url: targetUrl,
             responseType: 'stream',
-            headers: { 'Authorization': `Basic ${auth}` }
+            headers: { 'Authorization': `Basic ${auth}` },
+            timeout: 10000
         });
 
         // Pass through headers
@@ -103,8 +115,9 @@ app.get('/api/proxy-recording', async (req, res) => {
 
         response.data.pipe(res);
     } catch (error) {
-        console.error(`❌ Proxy failed for ${url}: ${error.message}`);
-        res.status(500).send('Failed to proxy recording');
+        const statusCode = error.response ? error.response.status : 500;
+        console.error(`❌ Proxy failed for ${url}: ${error.message} (Status: ${statusCode})`);
+        res.status(statusCode).send(`Failed to proxy recording: ${error.message}`);
     }
 });
 const APP_ENV = process.env.APP_ENV || 'production';

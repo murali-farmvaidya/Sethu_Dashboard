@@ -216,12 +216,12 @@ export default function SessionDetails() {
                                     controls
                                     preload="auto"
                                     style={{ width: '100%', height: '35px' }}
-                                    src={`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}
+                                    src={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}
                                 >
                                     Your browser does not support the audio element.
                                 </audio>
                                 <a
-                                    href={`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}
+                                    href={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}
                                     download={`recording-${sessionId}.mp3`}
                                     target="_blank"
                                     rel="noopener noreferrer"
