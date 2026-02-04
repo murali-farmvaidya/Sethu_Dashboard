@@ -107,6 +107,10 @@ const Session = sequelize.define('Session', {
     organization_id: DataTypes.STRING,
     deployment_id: DataTypes.STRING,
     completion_status: DataTypes.STRING,
+    metadata: {
+        type: DataTypes.JSONB,
+        defaultValue: {}
+    },
     last_synced: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
@@ -213,6 +217,8 @@ async function syncSessions(client, agents) {
             const response = (page === 1) ? initialResponse : await client.getAgentSessions(agent.name, page, 100);
             const sessions = response.data || [];
 
+            if (sessions.length === 0) break;
+
             // If Ascending, we process the page backwards (newest in page first)
             const sessionsToProcess = isAscending ? [...sessions].reverse() : sessions;
 
@@ -250,6 +256,8 @@ async function syncSessions(client, agents) {
 
             if (isAscending) page--; else page++;
             if (page === 0) break;
+            // For descending, if we processed all available pages
+            if (!isAscending && sessions.length < 100) break;
             await client.delay(100);
         }
     }
@@ -315,10 +323,30 @@ async function syncConversations(client, agents) {
                         log: msg,
                         timestamp: log.timestamp
                     });
+
+                    // NEW: Extract telephony metadata if present
+                    const telephony = require('../src/services/pipecat_normalization').extractTelephonyMetadata(msg);
+                    if (telephony) {
+                        try {
+                            const currentSession = await Session.findByPk(sessionId);
+                            if (currentSession) {
+                                const newMetadata = { ...(currentSession.metadata || {}), telephony };
+                                await Session.update(
+                                    { metadata: newMetadata },
+                                    { where: { session_id: sessionId } }
+                                );
+                                logger.debug(`Updated session ${sessionId} with telephony metadata: ${JSON.stringify(telephony)}`);
+                            }
+                        } catch (metaErr) {
+                            logger.error(`Error updating telephony metadata for ${sessionId}: ${metaErr.message}`);
+                        }
+                    }
                 }
 
                 if (isAscending) page--; else page++;
                 if (page === 0) break;
+                // For descending, if we processed all available pages
+                if (!isAscending && logs.length < 100) break;
                 await client.delay(100);
             } catch (fetchError) {
                 logger.error(`⚠️ Stopping log fetch for ${agent.name} at page ${page} due to error: ${fetchError.message}`);

@@ -29,7 +29,84 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Table Configuration (Matches backend)
+// Exotel Service Configuration
+const exotelConfig = {
+    apiKey: process.env.EXOTEL_API_KEY,
+    apiToken: process.env.EXOTEL_API_TOKEN,
+    accountSid: process.env.EXOTEL_ACCOUNT_SID || 'farmvaidya1',
+    subdomain: process.env.EXOTEL_SUBDOMAIN || 'api.exotel.com'
+};
+
+const getExotelRecordingUrl = async (callSid, returnFull = false) => {
+    if (!exotelConfig.apiKey || !exotelConfig.apiToken) {
+        console.warn('⚠️ Exotel API credentials not configured in frontend server');
+        return null;
+    }
+
+    try {
+        const auth = Buffer.from(`${exotelConfig.apiKey}:${exotelConfig.apiToken}`).toString('base64');
+        const url = `https://${exotelConfig.subdomain}/v1/Accounts/${exotelConfig.accountSid}/Calls/${callSid}.json?RecordingUrlValidity=60`;
+
+        const response = await axios.get(url, {
+            headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        if (response.data && response.data.Call) {
+            let recordingUrl = response.data.Call.PreSignedRecordingUrl || response.data.Call.RecordingUrl;
+            let staticUrl = response.data.Call.RecordingUrl;
+
+            // Fix http -> https for browser compatibility
+            if (recordingUrl && recordingUrl.startsWith('http:')) {
+                recordingUrl = recordingUrl.replace('http:', 'https:');
+            }
+            if (staticUrl && staticUrl.startsWith('http:')) {
+                staticUrl = staticUrl.replace('http:', 'https:');
+            }
+
+            if (returnFull) {
+                return { recordingUrl, staticUrl };
+            }
+            return recordingUrl;
+        }
+        return null;
+    } catch (error) {
+        console.error(`❌ Failed to fetch Exotel recording for ${callSid}: ${error.message}`);
+        return null;
+    }
+};
+
+// Audio Proxy to bypass CORS issues
+app.get('/api/proxy-recording', async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).send('URL is required');
+
+    if (!exotelConfig.apiKey || !exotelConfig.apiToken) {
+        console.warn('⚠️ Exotel credentials missing for recording proxy');
+        return res.status(500).send('Server configuration error');
+    }
+
+    try {
+        const auth = Buffer.from(`${exotelConfig.apiKey}:${exotelConfig.apiToken}`).toString('base64');
+        const response = await axios({
+            method: 'get',
+            url: url,
+            responseType: 'stream',
+            headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        // Pass through headers
+        res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
+        if (response.headers['content-length']) {
+            res.setHeader('Content-Length', response.headers['content-length']);
+        }
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+
+        response.data.pipe(res);
+    } catch (error) {
+        console.error(`❌ Proxy failed for ${url}: ${error.message}`);
+        res.status(500).send('Failed to proxy recording');
+    }
+});
 const APP_ENV = process.env.APP_ENV || 'production';
 const getTableName = (baseTableName) => {
     if (APP_ENV === 'test') {
@@ -766,7 +843,55 @@ app.get('/api/session/:sessionId', async (req, res) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Session not found" });
         }
-        res.json(result.rows[0]);
+
+        const session = result.rows[0];
+
+        // Handle metadata (Postgres returns it as an object if it's JSONB, or string if JSON)
+        let metadata = session.metadata;
+        if (typeof metadata === 'string') {
+            try { metadata = JSON.parse(metadata); } catch (e) { }
+        }
+
+        let recordingUrl = metadata?.telephony?.recording_url || null;
+
+        if (metadata?.telephony?.call_id && !recordingUrl) {
+            // If transport is exotel, or if account_sid matches our config, or if transport is missing but we have config
+            const isExotel = metadata.telephony.transport === 'exotel' ||
+                metadata.telephony.account_sid === exotelConfig.accountSid ||
+                (!metadata.telephony.transport && exotelConfig.apiKey);
+
+            if (isExotel) {
+                console.log(`🔊 Fetching Exotel recording for CallSid: ${metadata.telephony.call_id}`);
+                const fullRecordingData = await getExotelRecordingUrl(metadata.telephony.call_id, true);
+
+                if (fullRecordingData) {
+                    recordingUrl = fullRecordingData.recordingUrl;
+
+                    // SAVE to database so we don't fetch again next time
+                    try {
+                        const updatedMetadata = {
+                            ...metadata,
+                            telephony: {
+                                ...metadata.telephony,
+                                recording_url: fullRecordingData.staticUrl || fullRecordingData.recordingUrl
+                            }
+                        };
+                        await pool.query(`UPDATE "${getTableName('Sessions')}" SET metadata = $1 WHERE session_id = $2`, [JSON.stringify(updatedMetadata), sessionId]);
+                        metadata = updatedMetadata; // Update local variable for response
+                        console.log(`✅ Recording URL saved to DB for session ${sessionId}`);
+                    } catch (dbErr) {
+                        console.error(`⚠️ Failed to save recording URL to DB: ${dbErr.message}`);
+                    }
+                }
+                console.log(`✅ Recording URL: ${recordingUrl ? 'Found' : 'Not Found'}`);
+            }
+        }
+
+        res.json({
+            ...session,
+            metadata,
+            recordingUrl
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
