@@ -9,6 +9,7 @@ const { getTableName } = require('../config/tables');
 const { logAudit } = require('../utils/audit');
 const logger = require('../utils/logger');
 const { Op } = require('sequelize');
+const exotelService = require('../services/exotel.service');
 
 /**
  * Check if user has permission to view sessions for agent
@@ -193,10 +194,22 @@ async function getSessionDetails(req, res) {
             req
         });
 
+        // Check for recording URL in metadata or try to fetch it
+        let recordingUrl = null;
+        const metadata = typeof session.metadata === 'string' ? JSON.parse(session.metadata) : session.metadata;
+        const telephony = metadata?.telephony;
+
+        if (telephony?.call_id && telephony?.transport === 'exotel') {
+            // Try to fetch recording URL if we have a CallSid
+            recordingUrl = await exotelService.getRecordingUrl(telephony.call_id);
+        }
+
         res.json({
             success: true,
             session: {
                 ...session,
+                metadata, // return parsed metadata
+                recordingUrl,
                 conversationCount,
                 canViewConversations: permCheck.assignment.can_view_conversations,
                 canViewLogs: permCheck.assignment.can_view_logs

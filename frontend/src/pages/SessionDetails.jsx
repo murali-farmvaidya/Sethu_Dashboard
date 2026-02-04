@@ -29,7 +29,14 @@ export default function SessionDetails() {
             // Fetch session details (should always exist)
             try {
                 const sessRes = await api.get(`/api/session/${sessionId}`);
-                setSession(sessRes.data);
+                setSession(prev => {
+                    // Prevent audio reset: if we already have a recordingUrl, 
+                    // and the new response has the same one, don't trigger a state update that resets the <audio> tag
+                    if (prev && prev.recordingUrl === sessRes.data.recordingUrl) {
+                        return { ...sessRes.data, recordingUrl: prev.recordingUrl };
+                    }
+                    return sessRes.data;
+                });
             } catch (sessErr) {
                 console.error("Error fetching session:", sessErr);
             }
@@ -201,6 +208,37 @@ export default function SessionDetails() {
                             <span className="info-label">Last Synced</span>
                             <span className="info-value">{formatDateTime(session?.last_synced)}</span>
                         </div>
+
+                        {session?.recordingUrl && (
+                            <div className="info-row" style={{ flexDirection: 'column', alignItems: 'flex-start', marginTop: '1.5rem', gap: '0.8rem' }}>
+                                <span className="info-label" style={{ color: 'var(--primary)', fontWeight: 'bold' }}>Call Recording</span>
+                                <audio
+                                    controls
+                                    preload="auto"
+                                    style={{ width: '100%', height: '35px' }}
+                                    src={`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}
+                                >
+                                    Your browser does not support the audio element.
+                                </audio>
+                                <a
+                                    href={`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}
+                                    download={`recording-${sessionId}.mp3`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="btn-download-recording"
+                                    style={{
+                                        fontSize: '0.8rem',
+                                        color: 'var(--primary)',
+                                        textDecoration: 'none',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                    }}
+                                >
+                                    <Download size={14} /> Download Recording
+                                </a>
+                            </div>
+                        )}
                     </div>
 
                     <div className="sidebar-footer">
@@ -210,7 +248,6 @@ export default function SessionDetails() {
                     </div>
                 </aside>
 
-                {/* Main Content - Conversations */}
                 {/* Main Content - Conversations */}
                 <main className="dashboard-main" style={{
                     display: 'flex',
