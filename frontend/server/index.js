@@ -761,10 +761,14 @@ app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
     }
 
     try {
+        const tableName = getTableName('Conversations');
+        console.log(`📝 Manual Summary Request: session=${sessionId}, table=${tableName}`);
+
         // Fetch conversation
-        const convResult = await pool.query(`SELECT * FROM "${getTableName('Conversations')}" WHERE session_id = $1`, [sessionId]);
+        const convResult = await pool.query(`SELECT * FROM "${tableName}" WHERE session_id = $1`, [sessionId]);
         if (convResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Conversation not found' });
+            console.error(`❌ Summary failed: Session ${sessionId} has no transcript data in ${tableName}. Run sync first.`);
+            return res.status(404).json({ error: `Transcript not found in ${tableName}. Please run data sync for this session.` });
         }
 
         const conversation = convResult.rows[0];
@@ -783,19 +787,24 @@ app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
             return text;
         }).join('\n---\n');
 
-        const systemPrompt = `You are an expert at summarizing customer service conversations.
-Write a simple, easy-to-understand summary in 50 words or less.
+        const systemPrompt = `You are a professional conversation summarizer.
 
-IMPORTANT LANGUAGE INSTRUCTION:
-- Analyze the language(s) used in the conversation below
-- If the user speaks primarily in Telugu, write the summary in Telugu
-- If the user speaks primarily in Hindi, write the summary in Hindi  
-- If the user speaks primarily in English, write the summary in English
-- If multiple languages are used, choose the language the USER spoke the most
-- The summary MUST be in the same language as the user's primary language
+TASK:
+Summarize the conversation below in 50 words or less.
 
-Focus on: what the user asked about, what help was given, and how it ended.
-Avoid technical words. Be clear and friendly.`;
+LANGUAGE RULES (STRICT):
+1. Detect the language used in the conversation.
+2. The summary MUST be written in the SAME language as the conversation.
+   - Conversation in English -> Summary in English.
+   - Conversation in Telugu -> Summary in Telugu (Telugu script).
+   - Conversation in Hindi -> Summary in Hindi (Devanagari script).
+3. DEFAULT: If you are unsure or if the conversation is in English, you MUST write the summary in English.
+4. Do NOT translate from one language to another. If the text is English, do NOT output Telugu.
+
+CONTENT:
+- Briefly state the user's intent or problem.
+- Briefly state the response or solution provided.
+- Keep it concise and under 50 words.`;
 
         // Call OpenAI
         const openaiResponse = await axios.post(

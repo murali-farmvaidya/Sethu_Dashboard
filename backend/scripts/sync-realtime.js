@@ -27,6 +27,7 @@ const { generateSummary } = require(path.join(__dirname, '../src/services/summar
 // ============ CONFIGURATION ============
 const SYNC_START_DATE = new Date('2026-01-01T00:00:00Z');
 const POLL_INTERVAL_MS = 5000; // Run every 5 seconds
+const MAX_PARALLEL_AGENTS = 3; // Number of "Virtual Workers" for agent syncing
 
 // Sessions that ENDED after this time will get auto-generated summaries
 // Set to script start time so only new sessions get summaries, not historical ones
@@ -187,262 +188,237 @@ async function syncAgents(client) {
 }
 
 async function syncSessions(client, agents) {
-    for (const agent of agents) {
-        // INCREMENTAL: Get the most recent session start time we have for this agent
-        const latestSession = await Session.findOne({
-            where: { agent_id: agent.id },
-            order: [['started_at', 'DESC']]
-        });
+    logger.info(`🚀 Starting parallel session sync for ${agents.length} agents...`);
 
-        const stopThreshold = latestSession
-            ? new Date(latestSession.started_at.getTime() - (60 * 60 * 1000))
-            : SYNC_START_DATE;
+    // Process agents in parallel with a limit
+    const processAgent = async (agent) => {
+        try {
+            logger.info(` [Worker] Syncing sessions for Agent: ${agent.name}`);
+            // INCREMENTAL: Get the most recent session start time we have for this agent
+            const latestSession = await Session.findOne({
+                where: { agent_id: agent.id },
+                order: [['started_at', 'DESC']]
+            });
 
-        // FETCH PAGE 1 TO DETECT ORDER
-        const initialResponse = await client.getAgentSessions(agent.name, 1, 100);
-        const initialSessions = initialResponse.data || [];
-        if (initialSessions.length === 0) continue;
+            const stopThreshold = latestSession
+                ? new Date(latestSession.started_at.getTime() - (60 * 60 * 1000))
+                : SYNC_START_DATE;
 
-        // Detect Order: If first session is older than last session on page, it's Ascending (Oldest First)
-        const isAscending = initialSessions.length > 1 &&
-            new Date(initialSessions[0].createdAt) < new Date(initialSessions[initialSessions.length - 1].createdAt);
+            // FETCH PAGE 1 TO DETECT ORDER
+            const initialResponse = await client.getAgentSessions(agent.name, 1, 100);
+            const initialSessions = initialResponse.data || [];
+            if (initialSessions.length === 0) return;
 
-        const totalSessions = initialResponse.total || initialResponse.total_count || initialSessions.length;
-        const totalPages = Math.ceil(totalSessions / 100);
+            // Detect Order: If first session is older than last session on page, it's Ascending (Oldest First)
+            const isAscending = initialSessions.length > 1 &&
+                new Date(initialSessions[0].createdAt) < new Date(initialSessions[initialSessions.length - 1].createdAt);
 
-        let page = isAscending ? totalPages : 1;
-        let stopFetching = false;
+            const totalSessions = initialResponse.total || initialResponse.total_count || initialSessions.length;
+            const totalPages = Math.ceil(totalSessions / 100);
 
-        while (page >= 1 && !stopFetching) {
-            const response = (page === 1) ? initialResponse : await client.getAgentSessions(agent.name, page, 100);
-            const sessions = response.data || [];
+            let page = isAscending ? totalPages : 1;
+            let stopFetching = false;
 
-            if (sessions.length === 0) break;
+            while (page >= 1 && !stopFetching) {
+                const response = (page === 1) ? initialResponse : await client.getAgentSessions(agent.name, page, 100);
+                const sessions = response.data || [];
 
-            // If Ascending, we process the page backwards (newest in page first)
-            const sessionsToProcess = isAscending ? [...sessions].reverse() : sessions;
-
-            for (const session of sessionsToProcess) {
-                const startedAt = session.createdAt ? new Date(session.createdAt) : new Date();
-
-                if (startedAt < stopThreshold) {
-                    stopFetching = true;
-                    break;
-                }
-
-                const endedAt = session.endedAt ? new Date(session.endedAt) : null;
-                let durationSeconds = 0;
-                if (endedAt && startedAt) {
-                    durationSeconds = Math.round((endedAt - startedAt) / 1000);
-                }
-
-                await Session.upsert({
-                    session_id: session.sessionId,
-                    agent_id: agent.id,
-                    agent_name: agent.name,
-                    started_at: startedAt,
-                    ended_at: endedAt,
-                    status: session.completionStatus || 'unknown',
-                    bot_start_seconds: session.botStartSeconds || 0,
-                    cold_start: session.coldStart || false,
-                    duration_seconds: durationSeconds,
-                    service_id: session.serviceId,
-                    organization_id: session.organizationId,
-                    deployment_id: session.deploymentId,
-                    completion_status: session.completionStatus,
-                    last_synced: new Date()
-                });
-            }
-
-            if (isAscending) page--; else page++;
-            if (page === 0) break;
-            // For descending, if we processed all available pages
-            if (!isAscending && sessions.length < 100) break;
-            await client.delay(100);
-        }
-    }
-}
-
-async function syncConversations(client, agents) {
-    let totalSynced = 0;
-
-    for (const agent of agents) {
-        const latestConversation = await Conversation.findOne({
-            where: { agent_id: agent.id },
-            order: [['last_message_at', 'DESC']]
-        });
-
-        const stopThreshold = latestConversation
-            ? new Date(latestConversation.last_message_at.getTime() - (5 * 60 * 1000))
-            : SYNC_START_DATE;
-
-        // FETCH PAGE 1 TO DETECT ORDER (Fetch all logs to ensure we see user speaking/stops and RAG messages)
-        const initialResponse = await client.getAgentLogs(agent.name, null, 1, 100);
-        const initialLogs = initialResponse.data || [];
-        if (initialLogs.length === 0) continue;
-
-        // Detect Order
-        const isAscending = initialLogs.length > 1 &&
-            new Date(initialLogs[0].timestamp) < new Date(initialLogs[initialLogs.length - 1].timestamp);
-
-        const totalLogs = initialResponse.total || initialLogs.length;
-        const totalPages = Math.ceil(totalLogs / 100);
-
-        let page = isAscending ? totalPages : 1;
-        let stopFetchingForAgent = false;
-        const sessionLogs = new Map(); // Store ALL logs per session
-
-        while (page >= 1 && !stopFetchingForAgent) {
-            try {
-                const response = (page === 1) ? initialResponse : await client.getAgentLogs(agent.name, null, page, 100);
-                const logs = response.data || [];
-
-                if (logs.length === 0) break;
+                if (sessions.length === 0) break;
 
                 // If Ascending, we process the page backwards (newest in page first)
-                const logsToProcess = isAscending ? [...logs].reverse() : logs;
+                const sessionsToProcess = isAscending ? [...sessions].reverse() : sessions;
 
-                for (const log of logsToProcess) {
-                    const logTime = new Date(log.timestamp);
+                for (const session of sessionsToProcess) {
+                    const startedAt = session.createdAt ? new Date(session.createdAt) : new Date();
 
-                    if (logTime < stopThreshold) {
-                        stopFetchingForAgent = true;
+                    if (startedAt < stopThreshold) {
+                        stopFetching = true;
                         break;
                     }
 
-                    const msg = log.log || '';
-                    const sessionId = extractSessionId(msg);
-                    if (!sessionId) continue;
-
-                    // Store ALL logs for this session (not just context/TTS)
-                    if (!sessionLogs.has(sessionId)) {
-                        sessionLogs.set(sessionId, []);
+                    const endedAt = session.endedAt ? new Date(session.endedAt) : null;
+                    let durationSeconds = 0;
+                    if (endedAt && startedAt) {
+                        durationSeconds = Math.round((endedAt - startedAt) / 1000);
                     }
 
-                    sessionLogs.get(sessionId).push({
-                        log: msg,
-                        timestamp: log.timestamp
+                    await Session.upsert({
+                        session_id: session.sessionId,
+                        agent_id: agent.id,
+                        agent_name: agent.name,
+                        started_at: startedAt,
+                        ended_at: endedAt,
+                        status: session.completionStatus || 'unknown',
+                        bot_start_seconds: session.botStartSeconds || 0,
+                        cold_start: session.coldStart || false,
+                        duration_seconds: durationSeconds,
+                        service_id: session.serviceId,
+                        organization_id: session.organizationId,
+                        deployment_id: session.deploymentId,
+                        completion_status: session.completionStatus,
+                        last_synced: new Date()
                     });
-
-                    // NEW: Extract telephony metadata if present
-                    const telephony = require('../src/services/pipecat_normalization').extractTelephonyMetadata(msg);
-                    if (telephony) {
-                        try {
-                            const currentSession = await Session.findByPk(sessionId);
-                            if (currentSession) {
-                                const newMetadata = { ...(currentSession.metadata || {}), telephony };
-                                await Session.update(
-                                    { metadata: newMetadata },
-                                    { where: { session_id: sessionId } }
-                                );
-                                logger.debug(`Updated session ${sessionId} with telephony metadata: ${JSON.stringify(telephony)}`);
-                            }
-                        } catch (metaErr) {
-                            logger.error(`Error updating telephony metadata for ${sessionId}: ${metaErr.message}`);
-                        }
-                    }
                 }
 
                 if (isAscending) page--; else page++;
                 if (page === 0) break;
                 // For descending, if we processed all available pages
-                if (!isAscending && logs.length < 100) break;
+                if (!isAscending && sessions.length < 100) break;
                 await client.delay(100);
-            } catch (fetchError) {
-                logger.error(`⚠️ Stopping log fetch for ${agent.name} at page ${page} due to error: ${fetchError.message}`);
-                // Continue to processing with what we have
-                break;
             }
+        } catch (err) {
+            logger.error(` ❌ [Worker] Error syncing sessions for ${agent.name}: ${err.message}`);
         }
+    };
 
-        // Process each session's logs using the normalization layer
-        for (const [sessionId, logs] of sessionLogs) {
-            try {
-                if (!logs || logs.length === 0) continue;
+    // Use a simple pooling mechanism for parallel execution
+    for (let i = 0; i < agents.length; i += MAX_PARALLEL_AGENTS) {
+        const chunk = agents.slice(i, i + MAX_PARALLEL_AGENTS);
+        await Promise.all(chunk.map(agent => processAgent(agent)));
+    }
+}
 
-                // Use the smart normalization function that detects format dynamically
-                const turns = normalizeLogs(logs);
+async function syncConversations(client, agents) {
+    logger.info(`🚀 Starting parallel conversation sync for ${agents.length} agents...`);
+    let totalSyncedGlobal = 0;
 
-                if (turns.length === 0) continue;
+    const processAgentConversations = async (agent) => {
+        let agentSyncedCount = 0;
+        try {
+            logger.info(` [Worker] Fetching logs for Agent: ${agent.name}`);
+            const latestConversation = await Conversation.findOne({
+                where: { agent_id: agent.id },
+                order: [['last_message_at', 'DESC']]
+            });
 
-                // Use the timestamp from the most recent turn
-                const time = turns[turns.length - 1].timestamp || new Date();
-                const parentSession = await Session.findOne({ where: { session_id: sessionId } });
-                if (!parentSession) continue;
+            // If we have synced data, look back 5 mins to catch overlapping messages
+            const stopThreshold = latestConversation
+                ? new Date(latestConversation.last_message_at.getTime() - (5 * 60 * 1000))
+                : SYNC_START_DATE;
 
-                const existing = await Conversation.findOne({ where: { session_id: sessionId } });
+            const initialResponse = await client.getAgentLogs(agent.name, null, 1, 100);
+            const initialLogs = initialResponse.data || [];
+            if (initialLogs.length === 0) return 0;
 
-                // Check if we have new content to save (specifically missing assistant response)
-                let isContentMissing = false;
-                if (existing && existing.turns.length === turns.length) {
-                    const lastTurn = turns[turns.length - 1];
-                    const existingLastTurn = existing.turns[existing.turns.length - 1];
-                    if (lastTurn.assistant_message && (!existingLastTurn || !existingLastTurn.assistant_message)) {
-                        isContentMissing = true;
+            const isAscending = initialLogs.length > 1 &&
+                new Date(initialLogs[0].timestamp) < new Date(initialLogs[initialLogs.length - 1].timestamp);
+
+            const totalLogs = initialResponse.total || initialLogs.length;
+            const totalPages = Math.ceil(totalLogs / 100);
+
+            let page = isAscending ? totalPages : 1;
+            let stopFetchingForAgent = false;
+            const sessionLogs = new Map();
+
+            while (page >= 1 && !stopFetchingForAgent) {
+                try {
+                    const response = (page === 1) ? initialResponse : await client.getAgentLogs(agent.name, null, page, 100);
+                    const logs = response.data || [];
+                    if (logs.length === 0) break;
+
+                    const logsToProcess = isAscending ? [...logs].reverse() : logs;
+                    for (const log of logsToProcess) {
+                        const logTime = new Date(log.timestamp);
+                        if (logTime < stopThreshold) {
+                            stopFetchingForAgent = true;
+                            break;
+                        }
+                        const msg = log.log || '';
+                        const sessionId = extractSessionId(msg);
+                        if (!sessionId) continue;
+                        if (!sessionLogs.has(sessionId)) sessionLogs.set(sessionId, []);
+                        sessionLogs.get(sessionId).push({ log: msg, timestamp: log.timestamp });
+
+                        // Telephony metadata extraction
+                        const telephony = require('../src/services/pipecat_normalization').extractTelephonyMetadata(msg);
+                        if (telephony) {
+                            try {
+                                const currentSession = await Session.findByPk(sessionId);
+                                if (currentSession) {
+                                    const newMetadata = { ...(currentSession.metadata || {}), telephony };
+                                    await Session.update({ metadata: newMetadata }, { where: { session_id: sessionId } });
+                                }
+                            } catch (e) { }
+                        }
                     }
+
+                    if (isAscending) page--; else page++;
+                    if (page === 0) break;
+                    if (!isAscending && logs.length < 100) break;
+                    await client.delay(50);
+                } catch (fetchError) {
+                    logger.error(`⚠️ Stopping log fetch for ${agent.name} at page ${page}: ${fetchError.message}`);
+                    break;
                 }
-
-                // Check if we need to generate a summary (Session ended, but no summary in DB)
-                const needsSummary = existing && !existing.summary && parentSession.ended_at;
-
-                // Skip ONLY if:
-                // 1. Data matches (turns & time)
-                // 2. No missing content identified
-                // 3. No summary generation needed
-                if (existing && existing.turns.length === turns.length && existing.last_message_at >= time && !isContentMissing && !needsSummary) {
-                    continue;
-                }
-                if (!parentSession) continue;
-
-                // Generate summary for sessions that:
-                // 1. Have ended
-                // 2. Have conversation turns
-                // 3. Are RECENT (started today or later) - prevents backfilling old history
-                // 4. Don't have a summary yet (handle retry if synced before end)
-                let summary = null;
-                const sessionEnded = parentSession.ended_at;
-                const hasTurns = turns.length > 0;
-                const noSummaryYet = !existing?.summary;
-
-                // Static cutoff (Today) ensures we cover all "current" testing sessions, persisting across restarts
-                const RECENT_CUTOFF = new Date('2026-01-28T00:00:00Z');
-                const isRecentSession = new Date(parentSession.started_at) >= RECENT_CUTOFF;
-
-                if (sessionEnded && hasTurns && noSummaryYet && isRecentSession) {
-                    logger.info(`Generating summary for ended session: ${sessionId}`);
-                    summary = await generateSummary(turns);
-                } else if (existing?.summary) {
-                    // Keep existing summary if we already have one
-                    summary = existing.summary;
-                }
-                // Old sessions or not ended yet -> summary stays null/unchanged
-
-                await Conversation.upsert({
-                    session_id: sessionId,
-                    agent_id: agent.id,
-                    agent_name: agent.name,
-                    turns: turns,
-                    total_turns: turns.length,
-                    first_message_at: turns[0]?.timestamp || time,
-                    last_message_at: time,
-                    summary: summary,
-                    last_synced: new Date()
-                });
-
-                await Session.update(
-                    { conversation_count: turns.length },
-                    { where: { session_id: sessionId } }
-                );
-
-                totalSynced++;
-            } catch (e) {
-                logger.error(`Error syncing session ${sessionId}: ${e.message}`);
             }
+
+            // Process collected sessions
+            for (const [sessionId, logs] of sessionLogs.entries()) {
+                try {
+                    const turns = normalizeLogs(logs);
+                    if (!turns || turns.length === 0) continue;
+
+                    const time = turns[turns.length - 1].timestamp || new Date();
+                    const existing = await Conversation.findByPk(sessionId);
+                    const parentSession = await Session.findByPk(sessionId);
+
+                    let isContentMissing = false;
+                    if (existing && existing.turns.length === turns.length) {
+                        const lastTurn = turns[turns.length - 1];
+                        const existingLastTurn = existing.turns[existing.turns.length - 1];
+                        if (lastTurn.assistant_message && (!existingLastTurn || !existingLastTurn.assistant_message)) {
+                            isContentMissing = true;
+                        }
+                    }
+
+                    const needsSummary = existing && !existing.summary && parentSession?.ended_at;
+                    if (existing && existing.turns.length === turns.length && existing.last_message_at >= time && !isContentMissing && !needsSummary) {
+                        continue;
+                    }
+
+                    if (!parentSession) continue;
+
+                    let summary = null;
+                    const isRecentSession = new Date(parentSession.started_at) >= new Date('2026-01-28T00:00:00Z');
+                    if (parentSession.ended_at && turns.length > 0 && !existing?.summary && isRecentSession) {
+                        summary = await generateSummary(turns);
+                    } else if (existing?.summary) {
+                        summary = existing.summary;
+                    }
+
+                    await Conversation.upsert({
+                        session_id: sessionId,
+                        agent_id: agent.id,
+                        agent_name: agent.name,
+                        turns: turns,
+                        total_turns: turns.length,
+                        first_message_at: turns[0]?.timestamp || time,
+                        last_message_at: time,
+                        summary: summary,
+                        last_synced: new Date()
+                    });
+
+                    await Session.update({ conversation_count: turns.length }, { where: { session_id: sessionId } });
+                    agentSyncedCount++;
+                } catch (e) {
+                    logger.error(`Error processing session ${sessionId}: ${e.message}`);
+                }
+            }
+        } catch (err) {
+            logger.error(` ❌ [Worker] Error syncing conversations for ${agent.name}: ${err.message}`);
         }
+        return agentSyncedCount;
+    };
+
+    // Use pooling for parallel conversation sync
+    for (let i = 0; i < agents.length; i += MAX_PARALLEL_AGENTS) {
+        const chunk = agents.slice(i, i + MAX_PARALLEL_AGENTS);
+        const results = await Promise.all(chunk.map(agent => processAgentConversations(agent)));
+        totalSyncedGlobal += results.reduce((a, b) => a + b, 0);
     }
 
-    if (totalSynced > 0) {
-        logger.info(`✅ Synced ${totalSynced} updated conversations`);
+    if (totalSyncedGlobal > 0) {
+        logger.info(`✅ [Multi-Worker] Total Synced across all agents: ${totalSyncedGlobal}`);
     }
 }
 
