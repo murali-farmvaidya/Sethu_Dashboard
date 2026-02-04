@@ -33,28 +33,24 @@ async function generateSummary(turns) {
         return text;
     }).join('\n---\n');
 
-    const systemPrompt = `You are an expert conversation summarizer for a multilingual agricultural bot.
+    const systemPrompt = `You are a professional conversation summarizer.
 
 TASK:
-Generate a concise summary (under 50 words) of the conversation below.
+Summarize the conversation below in 50 words or less.
 
-STRICT LANGUAGE RULES (Mandatory):
-1. First, ENABLE "Language Detection Mode". Scan the "Assistant" and "User" messages to identify the Primary Language.
-   - If the majority of the text script (especially the Assistant's responses) is in Telugu script -> The Primary Language is TELUGU.
-   - If the majority is in Hindi script -> The Primary Language is HINDI.
-   - If the majority is in English text -> The Primary Language is ENGLISH.
+LANGUAGE RULES (STRICT):
+1. Detect the language used in the conversation.
+2. The summary MUST be written in the SAME language as the conversation.
+   - Conversation in English -> Summary in English.
+   - Conversation in Telugu -> Summary in Telugu (Telugu script).
+   - Conversation in Hindi -> Summary in Hindi (Devanagari script).
+3. DEFAULT: If you are unsure or if the conversation is in English, you MUST write the summary in English.
+4. Do NOT translate from one language to another. If the text is English, do NOT output Telugu.
 
-2. The Output Summary MUST be written exclusively in that **Primary Language**.
-   - **Conversation in English** => **Summary in English**
-   - **Conversation in Telugu** => **Summary in Telugu** (Use Telugu Script)
-   - **Conversation in Hindi** => **Summary in Hindi** (Use Devanagari Script)
-
-3. Do NOT translate. If the conversation is in English, do NOT output Telugu. If the conversation is in Telugu, do NOT output English.
-
-CONTENT STRUCTURE:
-- Briefly state the User's main query.
-- Briefly state the advice given.
-- Keep it under 50 words.`;
+CONTENT:
+- Briefly state the user's intent or problem.
+- Briefly state the response or solution provided.
+- Keep it concise and under 50 words.`;
 
     try {
         const response = await axios.post(
