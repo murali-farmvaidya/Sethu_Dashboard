@@ -170,6 +170,7 @@ const initDatabase = async () => {
                 CREATE TABLE IF NOT EXISTS "${getTableName('User_Agents')}" (
                     user_id TEXT,
                     agent_id TEXT, 
+                    can_mark BOOLEAN DEFAULT FALSE,
                     PRIMARY KEY (user_id, agent_id)
                 )
             `);
@@ -228,6 +229,21 @@ const initDatabase = async () => {
             }
         }
 
+        // Add can_mark to User_Agents if missing
+        try {
+            const canMarkCheck = await pool.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = '${getTableName('User_Agents')}' AND column_name = 'can_mark'
+            `);
+            if (canMarkCheck.rows.length === 0) {
+                console.log(`➕ Adding missing column can_mark to ${getTableName('User_Agents')}...`);
+                await pool.query(`ALTER TABLE "${getTableName('User_Agents')}" ADD COLUMN IF NOT EXISTS can_mark BOOLEAN DEFAULT FALSE`);
+            }
+        } catch (err) {
+            console.error(`Failed to add can_mark column to User_Agents:`, err.message);
+        }
+
         console.log('✅ Database tables initialized/verified');
 
         // Seed Default Super Admin
@@ -266,8 +282,9 @@ const pool = new Pool({
     password: process.env.POSTGRES_PASSWORD,
     ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false,
     max: 20, // Increased
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 30000
+    connectionTimeoutMillis: 20000,
+    idleTimeoutMillis: 30000,
+    keepAlive: true
 });
 
 pool.on('error', (err) => {
@@ -839,8 +856,16 @@ CONTENT:
 
         res.json({ summary });
     } catch (error) {
-        console.error('Summary generation error:', error.message);
-        res.status(500).json({ error: 'Failed to generate summary: ' + error.message });
+        if (error.response) {
+            console.error('OpenAI Error Details:', error.response.status, error.response.data);
+            res.status(error.response.status).json({
+                error: `OpenAI error: ${error.response.status}`,
+                details: error.response.data
+            });
+        } else {
+            console.error('Summary generation error:', error.message);
+            res.status(500).json({ error: 'Failed to generate summary: ' + error.message });
+        }
     }
 });
 
@@ -1924,6 +1949,19 @@ app.post('/api/admin/users/:userId/agents/:agentId/mark-permission', async (req,
         });
     }
 });
+
+// Serve static files from the React app
+const distPath = path.join(__dirname, '../dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    // Handle SPA routing
+    app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) return next();
+        res.sendFile(path.join(distPath, 'index.html'));
+    });
+} else {
+    console.warn('⚠️ dist folder not found. Frontend will not be served statically.');
+}
 
 // Start Server
 const PORT = process.env.PORT || 3000;

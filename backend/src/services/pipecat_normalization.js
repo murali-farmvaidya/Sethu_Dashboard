@@ -169,6 +169,11 @@ function parseTTSLog(logMessage) {
     const match2 = logMessage.match(/Generating TTS:\s*\[(.+)\]/);
     if (match2) return match2[1];
 
+    // Match BakBak TTS format:
+    // BakBak TTS: Generating speech for text: [text]
+    const match3 = logMessage.match(/Generating speech for text:\s*\[(.+)\]/);
+    if (match3) return match3[1];
+
     return null;
 }
 
@@ -208,7 +213,7 @@ function detectLogFormat(logs) {
 
     const hasTTSEvents = logs.some(log => {
         const msg = getLogMessage(log);
-        return msg && msg.includes('Generating TTS');
+        return msg && (msg.includes('Generating TTS') || msg.includes('Generating speech for text'));
     });
 
     // Prioritize event-based because it captures real-time events and final responses better than context snapshots
@@ -367,7 +372,7 @@ function parseEventBasedLogs(logs) {
             }
 
             // Detect assistant TTS generation
-            if (msg.includes('Generating TTS')) {
+            if (msg.includes('Generating TTS') || msg.includes('Generating speech for text')) {
                 const ttsText = parseTTSLog(msg);
                 if (ttsText) {
                     if (!currentTurn) {
