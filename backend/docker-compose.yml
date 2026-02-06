@@ -1,25 +1,23 @@
 version: '3.8'
 
 services:
-  app:
+  backend-sync:
     build: .
     restart: always
-    environment:
-      - NODE_ENV=production
-      # MONGODB_URI: mongodb://mongo:27017/pipecat_dashboard
-      # PIPECAT_API_KEY: ${PIPECAT_API_KEY}
     env_file:
       - .env
-    depends_on:
-      - mongo
+    environment:
+      - NODE_ENV=production
+    # The sync script runs as the main process
+    command: npm run sync
 
-  mongo:
-    image: mongo:6.0
+  frontend-api:
+    build: ../frontend
     restart: always
-    volumes:
-      - mongo-data:/data/db
+    env_file:
+      - ../frontend/.env
     ports:
-      - "27017:27017"
-
-volumes:
-  mongo-data:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    command: npm run server

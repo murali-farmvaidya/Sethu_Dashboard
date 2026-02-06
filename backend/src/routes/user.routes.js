@@ -25,5 +25,6 @@ router.get('/sessions/:sessionId', userSessionsController.getSessionDetails);
 router.get('/sessions/:sessionId/conversations', userConversationsController.getSessionConversations);
 router.get('/agents/:agentId/conversations', userConversationsController.getAgentConversations);
 router.get('/conversations/:conversationId', userConversationsController.getConversationDetails);
+router.patch('/conversations/:sessionId/review-status', userConversationsController.updateReviewStatus);
 
 module.exports = router;

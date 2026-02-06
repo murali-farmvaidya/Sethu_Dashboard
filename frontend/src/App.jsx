@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import AgentDetails from './pages/AgentDetails';
 import SessionDetails from './pages/SessionDetails';
 import AdminUsers from './pages/AdminUsers';
+import ManagePermissions from './pages/ManagePermissions';
 import UserDashboard from './pages/UserDashboard';
 import ChangePassword from './pages/ChangePassword';
 import ForgotPassword from './pages/ForgotPassword';
@@ -63,6 +64,11 @@ function AppRoutes() {
       <Route path="/admin/users" element={
         <PrivateRoute adminOnly={true}>
           <AdminUsers />
+        </PrivateRoute>
+      } />
+      <Route path="/admin/permissions" element={
+        <PrivateRoute adminOnly={true}>
+          <ManagePermissions />
         </PrivateRoute>
       } />
       <Route path="/admin/agent/:agentId" element={

@@ -36,18 +36,28 @@ export default function Login() {
     <div className="login-page">
       {/* Left Side - Image and Branding */}
       <div className="login-left">
-        {/* Fallback pattern if image is missing */}
-        <div className="login-bg-image" style={{ backgroundImage: 'url(/loginpage.png)', backgroundSize: 'cover', backgroundPosition: 'center', opacity: 1 }}></div>
-        <div className="login-overlay">
-          <img src="/logo.png" alt="FarmVaidya" style={{ width: '200px', marginBottom: '1rem' }} />
-          <p style={{ marginTop: '10px', fontSize: '1.2rem', opacity: 0.8, color: 'white' }}>Sevak Dashboard</p>
-        </div>
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="login-bg-video"
+        >
+          <source src="/login_video.mp4" type="video/mp4" />
+        </video>
       </div>
 
       {/* Right Side - Login Form */}
       <div className="login-right">
+        <div className="login-right-header">
+          <img src="/logo.png" alt="FV" className="login-header-logo" />
+          <span className="login-header-title">SEVAK DASHBOARD</span>
+        </div>
+
         <div className="login-form-container">
-          <h2 className="login-title">Hello Again!</h2>
+          <h2 style={{ fontSize: '1.4rem', color: '#008F4B', fontWeight: '700', marginBottom: '1.5rem', textAlign: 'left' }}>
+            Welcome to Sevak
+          </h2>
           <form onSubmit={handleLogin} className="login-form">
             <div className="form-group">
               <label>Username</label>

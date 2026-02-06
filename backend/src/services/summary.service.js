@@ -6,8 +6,39 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// AI Configuration (Supports both OpenAI and Azure OpenAI)
+const isAzure = !!process.env.AZURE_OPENAI_API_KEY;
+const OPENAI_API_KEY = (process.env.AZURE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+const AZURE_ENDPOINT = (process.env.AZURE_OPENAI_ENDPOINT || '').trim();
+const AZURE_DEPLOYMENT = (process.env.AZURE_OPENAI_DEPLOYMENT_ID || 'gpt-4o-mini').trim();
+const AZURE_VERSION = (process.env.AZURE_OPENAI_API_VERSION || '2024-08-01-preview').trim();
+
+const getOpenAIUrl = () => {
+    if (isAzure) {
+        if (!AZURE_ENDPOINT) {
+            logger.error('❌ AZURE_OPENAI_ENDPOINT is not defined in .env');
+            return null;
+        }
+        const base = AZURE_ENDPOINT.endsWith('/') ? AZURE_ENDPOINT.slice(0, -1) : AZURE_ENDPOINT;
+        const url = `${base}/openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${AZURE_VERSION}`;
+        logger.debug(`🤖 AI Service URL: ${url}`);
+        return url;
+    }
+    return 'https://api.openai.com/v1/chat/completions';
+};
+
+const getOpenAIHeaders = () => {
+    if (isAzure) {
+        return {
+            'api-key': OPENAI_API_KEY,
+            'Content-Type': 'application/json'
+        };
+    }
+    return {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+    };
+};
 
 /**
  * Generates a ~50 word summary of a conversation.
@@ -19,8 +50,9 @@ async function generateSummary(turns) {
         return null;
     }
 
-    if (!OPENAI_API_KEY) {
-        logger.warn('OPENAI_API_KEY not set. Skipping summary generation.');
+    const url = getOpenAIUrl();
+    if (!OPENAI_API_KEY || !url) {
+        logger.warn('AI Configuration Missing. Skipping summary generation.');
         return null;
     }
 
@@ -54,9 +86,9 @@ CONTENT:
 
     try {
         const response = await axios.post(
-            OPENAI_API_URL,
+            getOpenAIUrl(),
             {
-                model: 'gpt-4o-mini',
+                ...(!isAzure && { model: 'gpt-4o-mini' }),
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: conversationText }
@@ -65,10 +97,7 @@ CONTENT:
                 temperature: 0.3
             },
             {
-                headers: {
-                    'Authorization': `Bearer ${OPENAI_API_KEY}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: getOpenAIHeaders(),
                 timeout: 30000
             }
         );
@@ -80,7 +109,11 @@ CONTENT:
         }
         return null;
     } catch (error) {
-        logger.error('OpenAI summary generation failed:', error.message);
+        if (error.response) {
+            logger.error(`AI Service Error (${error.response.status}):`, error.response.data);
+        } else {
+            logger.error('AI summary generation failed:', error.message);
+        }
         return null;
     }
 }

@@ -43,6 +43,10 @@ const UserAgentAssignment = sequelize.define('UserAgentAssignment', {
         type: DataTypes.BOOLEAN,
         defaultValue: false
     },
+    can_mark: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false  // Admins must explicitly grant this
+    },
     assigned_at: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW

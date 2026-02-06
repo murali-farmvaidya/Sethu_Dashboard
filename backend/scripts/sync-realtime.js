@@ -141,6 +141,18 @@ const Conversation = sequelize.define('Conversation', {
         type: DataTypes.TEXT,
         allowNull: true
     },
+    review_status: {
+        type: DataTypes.STRING,
+        defaultValue: 'pending'  // 'pending' | 'needs_review' | 'completed'
+    },
+    reviewed_by: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    reviewed_at: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
     last_synced: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW

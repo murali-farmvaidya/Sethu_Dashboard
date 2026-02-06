@@ -1,4 +1,8 @@
 import 'dotenv/config';
+process.env.APP_ENV = 'production'; // Force production to use correct tables
+console.log('🌍 Setting up environment:', process.env.APP_ENV);
+console.log('🔑 Azure Key Configured:', !!process.env.AZURE_OPENAI_API_KEY);
+console.log('📍 Azure Endpoint:', process.env.AZURE_OPENAI_ENDPOINT);
 import express from 'express';
 import pg from 'pg';
 import cors from 'cors';
@@ -170,6 +174,7 @@ const initDatabase = async () => {
                 CREATE TABLE IF NOT EXISTS "${getTableName('User_Agents')}" (
                     user_id TEXT,
                     agent_id TEXT, 
+                    can_mark BOOLEAN DEFAULT FALSE,
                     PRIMARY KEY (user_id, agent_id)
                 )
             `);
@@ -228,6 +233,21 @@ const initDatabase = async () => {
             }
         }
 
+        // Add can_mark to User_Agents if missing
+        try {
+            const canMarkCheck = await pool.query(`
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = '${getTableName('User_Agents')}' AND column_name = 'can_mark'
+            `);
+            if (canMarkCheck.rows.length === 0) {
+                console.log(`➕ Adding missing column can_mark to ${getTableName('User_Agents')}...`);
+                await pool.query(`ALTER TABLE "${getTableName('User_Agents')}" ADD COLUMN IF NOT EXISTS can_mark BOOLEAN DEFAULT FALSE`);
+            }
+        } catch (err) {
+            console.error(`Failed to add can_mark column to User_Agents:`, err.message);
+        }
+
         console.log('✅ Database tables initialized/verified');
 
         // Seed Default Super Admin
@@ -250,9 +270,41 @@ const initDatabase = async () => {
     }
 };
 
-// OpenAI Configuration
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// AI Configuration (Supports both OpenAI and Azure OpenAI)
+const isAzure = !!process.env.AZURE_OPENAI_API_KEY;
+console.log('🤖 AI Integration Mode:', isAzure ? 'Azure OpenAI' : 'Standard OpenAI');
+const OPENAI_API_KEY = (process.env.AZURE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+const AZURE_ENDPOINT = (process.env.AZURE_OPENAI_ENDPOINT || '').trim();
+const AZURE_DEPLOYMENT = (process.env.AZURE_OPENAI_DEPLOYMENT_ID || 'gpt-4o-mini').trim();
+const AZURE_VERSION = (process.env.AZURE_OPENAI_API_VERSION || '2024-08-01-preview').trim();
+
+const getOpenAIUrl = () => {
+    if (isAzure) {
+        if (!AZURE_ENDPOINT) {
+            console.error('❌ AZURE_OPENAI_ENDPOINT is not defined in .env');
+            return null;
+        }
+        // Normalize endpoint (ensure it ends without slash)
+        const base = AZURE_ENDPOINT.endsWith('/') ? AZURE_ENDPOINT.slice(0, -1) : AZURE_ENDPOINT;
+        const url = `${base}/openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${AZURE_VERSION}`;
+        console.log(`🤖 AI Service URL: ${url}`);
+        return url;
+    }
+    return 'https://api.openai.com/v1/chat/completions';
+};
+
+const getOpenAIHeaders = () => {
+    if (isAzure) {
+        return {
+            'api-key': OPENAI_API_KEY,
+            'Content-Type': 'application/json'
+        };
+    }
+    return {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+    };
+};
 
 // --- DATABASE CONNECTION ---
 // Migrated from legacy users.json to PostgreSQL
@@ -266,8 +318,9 @@ const pool = new Pool({
     password: process.env.POSTGRES_PASSWORD,
     ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false,
     max: 20, // Increased
-    connectionTimeoutMillis: 5000,
-    idleTimeoutMillis: 30000
+    connectionTimeoutMillis: 20000,
+    idleTimeoutMillis: 30000,
+    keepAlive: true
 });
 
 pool.on('error', (err) => {
@@ -557,15 +610,20 @@ app.get('/api/agents', async (req, res) => {
         }
 
         const whereSql = whereClauses.length > 0 ? ` WHERE ` + whereClauses.join(' AND ') : '';
-        const finalSortBy = sortBy === 'session_count' ? 'computed_session_count' : `a."${sortBy}"`;
+        const finalSortBy = sortBy === 'session_count'
+            ? 'computed_session_count'
+            : sortBy === 'recent'
+                ? 'computed_last_session'
+                : `a."${sortBy}"`;
 
         const dataQuery = `
             SELECT a.*, 
             (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_session_count,
-            (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01') as computed_total_duration
+            (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01') as computed_total_duration,
+            (SELECT MAX(started_at) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_last_session
             ${baseQuery}
             ${whereSql}
-            ORDER BY ${finalSortBy} ${sortOrder}
+            ORDER BY ${finalSortBy} ${sortOrder} NULLS LAST
             LIMIT $${params.length + 1} OFFSET $${params.length + 2}
         `;
 
@@ -687,11 +745,12 @@ app.get('/api/sessions', async (req, res) => {
         const offset = (pageNum - 1) * limitNum;
         const dbSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-        // Join with Conversations to get summary
+        // Join with Conversations to get summary and review status, and Users to get reviewer email
         let query = `
-            SELECT s.*, c.summary 
+            SELECT s.*, c.summary, c.review_status, c.reviewed_by, c.reviewed_at, u.email as reviewer_email
             FROM "${getTableName('Sessions')}" s 
             LEFT JOIN "${getTableName('Conversations')}" c ON s.session_id = c.session_id
+            LEFT JOIN "${getTableName('Users')}" u ON c.reviewed_by = u.user_id
             WHERE s.agent_id = $1
         `;
         let params = [agent_id];
@@ -756,8 +815,10 @@ app.get('/api/sessions', async (req, res) => {
 app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
     const { sessionId } = req.params;
 
-    if (!OPENAI_API_KEY) {
-        return res.status(500).json({ error: 'OpenAI API key not configured' });
+    const url = getOpenAIUrl();
+    if (!OPENAI_API_KEY || !url) {
+        console.error('❌ AI Configuration Missing:', { hasKey: !!OPENAI_API_KEY, hasUrl: !!url });
+        return res.status(500).json({ error: 'AI integration not fully configured' });
     }
 
     try {
@@ -806,11 +867,12 @@ CONTENT:
 - Briefly state the response or solution provided.
 - Keep it concise and under 50 words.`;
 
-        // Call OpenAI
-        const openaiResponse = await axios.post(
-            OPENAI_API_URL,
+        // Call AI Service
+        const aiResponse = await axios.post(
+            getOpenAIUrl(),
             {
-                model: 'gpt-4o-mini',
+                // Only include model for standard OpenAI
+                ...(!isAzure && { model: 'gpt-4o-mini' }),
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: conversationText }
@@ -819,15 +881,12 @@ CONTENT:
                 temperature: 0.3
             },
             {
-                headers: {
-                    'Authorization': `Bearer ${OPENAI_API_KEY}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: getOpenAIHeaders(),
                 timeout: 30000
             }
         );
 
-        const summary = openaiResponse.data?.choices?.[0]?.message?.content?.trim();
+        const summary = aiResponse.data?.choices?.[0]?.message?.content?.trim();
 
         if (!summary) {
             return res.status(500).json({ error: 'Failed to generate summary' });
@@ -838,8 +897,24 @@ CONTENT:
 
         res.json({ summary });
     } catch (error) {
-        console.error('Summary generation error:', error.message);
-        res.status(500).json({ error: 'Failed to generate summary: ' + error.message });
+        if (error.response) {
+            console.error('❌ AI Service Error Details:', {
+                status: error.response.status,
+                data: error.response.data,
+                headers: error.response.headers
+            });
+            res.status(error.response.status).json({
+                error: `AI Service error: ${error.response.status}`,
+                details: error.response.data
+            });
+        } else {
+            console.error('❌ Summary generation failure:', error);
+            res.status(500).json({
+                error: 'Internal server error during summary generation',
+                message: error.message,
+                details: error.stack // Temporarily exposing stack for debugging
+            });
+        }
     }
 });
 
@@ -847,7 +922,13 @@ CONTENT:
 app.get('/api/conversation/:sessionId', async (req, res) => {
     const { sessionId } = req.params;
     try {
-        const result = await pool.query(`SELECT * FROM "${getTableName('Conversations')}" WHERE session_id = $1`, [sessionId]);
+        const result = await pool.query(`
+            SELECT c.*, u.email as reviewer_email
+            FROM "${getTableName('Conversations')}" c
+            LEFT JOIN "${getTableName('Users')}" u ON c.reviewed_by = u.user_id
+            WHERE c.session_id = $1
+        `, [sessionId]);
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Conversation logs not found" });
         }
@@ -1011,21 +1092,40 @@ app.get('/api/users', async (req, res) => {
             if (user.role === 'super_admin') {
                 user.agents = allAgentIds;
                 user.agentCount = allAgentIds.length;
+                user.agentPermissions = {}; // Super admin has all permissions by default
             } else if (user.role === 'admin' && reqUser.role === 'super_admin') {
                 // For super_admin viewing an admin, show that admin's specifically assigned agents
-                const agentIds = await pool.query(`SELECT agent_id FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [user.user_id]);
-                user.agents = agentIds.rows.map(r => r.agent_id);
+                const agentData = await pool.query(
+                    `SELECT agent_id, can_mark FROM "${getTableName('User_Agents')}" WHERE user_id = $1`,
+                    [user.user_id]
+                );
+                user.agents = agentData.rows.map(r => r.agent_id);
                 user.agentCount = user.agents.length;
+                user.agentPermissions = Object.fromEntries(
+                    agentData.rows.map(r => [r.agent_id, r.can_mark || false])
+                );
             } else if (user.role === 'admin' && user.user_id === requesterId) {
                 // For admin viewing themselves, show their assigned agents
-                const agentIds = await pool.query(`SELECT agent_id FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [user.user_id]);
-                user.agents = agentIds.rows.map(r => r.agent_id);
+                const agentData = await pool.query(
+                    `SELECT agent_id, can_mark FROM "${getTableName('User_Agents')}" WHERE user_id = $1`,
+                    [user.user_id]
+                );
+                user.agents = agentData.rows.map(r => r.agent_id);
                 user.agentCount = user.agents.length;
+                user.agentPermissions = Object.fromEntries(
+                    agentData.rows.map(r => [r.agent_id, r.can_mark || false])
+                );
             } else {
                 // Regular users or users managed by an admin
-                const agentIds = await pool.query(`SELECT agent_id FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [user.user_id]);
-                user.agents = agentIds.rows.map(r => r.agent_id);
+                const agentData = await pool.query(
+                    `SELECT agent_id, can_mark FROM "${getTableName('User_Agents')}" WHERE user_id = $1`,
+                    [user.user_id]
+                );
+                user.agents = agentData.rows.map(r => r.agent_id);
                 user.agentCount = user.agents.length;
+                user.agentPermissions = Object.fromEntries(
+                    agentData.rows.map(r => [r.agent_id, r.can_mark || false])
+                );
             }
         }
 
@@ -1692,6 +1792,225 @@ app.get('/api/users/creators', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+
+// Update Review Status
+app.patch('/api/user/conversations/:sessionId/review-status', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    let userId = null;
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        userId = decoded.userId;
+    } catch (err) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    try {
+        const { sessionId } = req.params;
+        const { status } = req.body;
+
+        // Validate status
+        const validStatuses = ['pending', 'needs_review', 'completed'];
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+            });
+        }
+
+        // Get user to check permissions
+        const userResult = await pool.query(
+            `SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`,
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
+
+        const userRole = userResult.rows[0].role;
+
+        // Get agent_id for this session
+        const sessionResult = await pool.query(
+            `SELECT agent_id FROM "${getTableName('Sessions')}" WHERE session_id = $1`,
+            [sessionId]
+        );
+
+        if (sessionResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Session not found' });
+        }
+
+        const agentId = sessionResult.rows[0].agent_id;
+
+        // Permission check: Super Admin can always mark
+        if (userRole !== 'super_admin') {
+            // Admin can mark if they have access to the agent
+            if (userRole === 'admin') {
+                const adminAccessCheck = await pool.query(
+                    `SELECT * FROM "${getTableName('User_Agents')}" WHERE user_id = $1 AND agent_id = $2`,
+                    [userId, agentId]
+                );
+                if (adminAccessCheck.rows.length === 0) {
+                    return res.status(403).json({
+                        success: false,
+                        error: 'You do not have access to this agent'
+                    });
+                }
+            } else {
+                // Regular user must have can_mark permission
+                const permissionCheck = await pool.query(
+                    `SELECT can_mark FROM "${getTableName('User_Agents')}" 
+                     WHERE user_id = $1 AND agent_id = $2`,
+                    [userId, agentId]
+                );
+
+                if (permissionCheck.rows.length === 0) {
+                    return res.status(403).json({
+                        success: false,
+                        error: 'You do not have access to this agent'
+                    });
+                }
+
+                if (!permissionCheck.rows[0].can_mark) {
+                    return res.status(403).json({
+                        success: false,
+                        error: 'You do not have permission to mark sessions for this agent'
+                    });
+                }
+            }
+        }
+
+        // Update the review status in Conversations table
+        const updateResult = await pool.query(`
+            UPDATE "${getTableName('Conversations')}"
+            SET 
+                review_status = $1,
+                reviewed_by = $2,
+                reviewed_at = NOW()
+            WHERE session_id = $3
+            RETURNING *
+        `, [status, userId, sessionId]);
+
+        if (updateResult.rows.length === 0) {
+            // If no conversation exists yet, create one
+            await pool.query(`
+                INSERT INTO "${getTableName('Conversations')}" 
+                (session_id, agent_id, turns, review_status, reviewed_by, reviewed_at)
+                SELECT session_id, agent_id, 0, $1, $2, NOW()
+                FROM "${getTableName('Sessions')}"
+                WHERE session_id = $3
+                ON CONFLICT (session_id) DO UPDATE
+                SET review_status = $1, reviewed_by = $2, reviewed_at = NOW()
+            `, [status, userId, sessionId]);
+        }
+
+        console.log(`✅ Review status updated: ${sessionId} -> ${status} by ${userId}`);
+
+        res.json({
+            success: true,
+            message: 'Review status updated successfully',
+            status: status
+        });
+
+    } catch (err) {
+        console.error('Update review status error:', err.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update review status'
+        });
+    }
+});
+
+// Toggle Mark Permission for User on Agent
+app.post('/api/admin/users/:userId/agents/:agentId/mark-permission', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    let requesterId = null;
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        requesterId = decoded.userId;
+    } catch (err) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    try {
+        const { userId, agentId } = req.params;
+        const { canMark } = req.body;
+
+        // Check if requester is admin
+        const requesterResult = await pool.query(
+            `SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`,
+            [requesterId]
+        );
+
+        if (requesterResult.rows.length === 0 ||
+            (requesterResult.rows[0].role !== 'super_admin' && requesterResult.rows[0].role !== 'admin')) {
+            return res.status(403).json({ success: false, error: 'Insufficient permissions' });
+        }
+
+        // Check if assignment exists in User_Agents table
+        const assignmentCheck = await pool.query(
+            `SELECT * FROM "${getTableName('User_Agents')}" WHERE user_id = $1 AND agent_id = $2`,
+            [userId, agentId]
+        );
+
+        if (assignmentCheck.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'User is not assigned to this agent'
+            });
+        }
+
+        // For now, we'll store can_mark in a JSON metadata field or separate column
+        // Since the User_Agents table might not have a can_mark column yet, 
+        // let's check if the column exists and add it if needed
+        try {
+            await pool.query(`
+                ALTER TABLE "${getTableName('User_Agents')}" 
+                ADD COLUMN IF NOT EXISTS can_mark BOOLEAN DEFAULT FALSE
+            `);
+        } catch (alterErr) {
+            console.log('can_mark column might already exist:', alterErr.message);
+        }
+
+        // Update the permission
+        await pool.query(`
+            UPDATE "${getTableName('User_Agents')}"
+            SET can_mark = $1
+            WHERE user_id = $2 AND agent_id = $3
+        `, [canMark, userId, agentId]);
+
+        console.log(`✅ Mark permission updated: User ${userId} on Agent ${agentId} -> can_mark: ${canMark}`);
+
+        res.json({
+            success: true,
+            message: 'Permission updated successfully',
+            canMark: canMark
+        });
+
+    } catch (err) {
+        console.error('Toggle mark permission error:', err.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update permission'
+        });
+    }
+});
+
+// Serve static files from the React app
+const distPath = path.join(__dirname, '../dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    // Handle SPA routing
+    app.get('*', (req, res, next) => {
+        if (req.path.startsWith('/api')) return next();
+        res.sendFile(path.join(distPath, 'index.html'));
+    });
+} else {
+    console.warn('⚠️ dist folder not found. Frontend will not be served statically.');
+}
 
 // Start Server
 const PORT = process.env.PORT || 3000;

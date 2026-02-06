@@ -169,10 +169,6 @@ export default function SessionDetails() {
             <div className="dashboard-layout">
                 {/* Left Sidebar - Session Info */}
                 <aside className="dashboard-sidebar">
-                    <div className="sidebar-header">
-                        <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
-                    </div>
-
                     <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
                         <h3 style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '1.1rem' }}>Session Details</h3>
 
@@ -207,6 +203,35 @@ export default function SessionDetails() {
                         <div className="info-row">
                             <span className="info-label">Last Synced</span>
                             <span className="info-value">{formatDateTime(session?.last_synced)}</span>
+                        </div>
+
+                        {/* Review Status Section */}
+                        <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #eee' }}>
+                            <h4 style={{ marginBottom: '0.8rem', color: 'var(--primary)', fontSize: '0.95rem', fontWeight: '600' }}>Review Status</h4>
+                            <div className="info-row">
+                                <span className="info-label">Status</span>
+                                <span className="info-value" style={{
+                                    textTransform: 'capitalize',
+                                    color: conversation?.review_status === 'completed' ? '#28a745' :
+                                        conversation?.review_status === 'needs_review' ? '#ffc107' : '#6c757d'
+                                }}>
+                                    {conversation?.review_status?.replace('_', ' ') || 'Pending'}
+                                </span>
+                            </div>
+                            {conversation?.reviewed_by && (
+                                <>
+                                    <div className="info-row">
+                                        <span className="info-label">Reviewed By</span>
+                                        <span className="info-value" style={{ wordBreak: 'break-all' }}>
+                                            {conversation.reviewer_email || conversation.reviewed_by}
+                                        </span>
+                                    </div>
+                                    <div className="info-row">
+                                        <span className="info-label">Reviewed At</span>
+                                        <span className="info-value">{formatDateTime(conversation.reviewed_at)}</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         {session?.recordingUrl && (
@@ -257,7 +282,7 @@ export default function SessionDetails() {
                     padding: 0,
                     background: 'white'
                 }}>
-                    <div className="dashboard-header" style={{
+                    <div className="dashboard-header-title" style={{
                         padding: '2rem 2rem 0 2rem',
                         marginBottom: '1rem',
                         background: 'white'

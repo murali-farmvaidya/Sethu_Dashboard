@@ -9,6 +9,7 @@ const { authenticate, authorizeRoles } = require('../middleware/auth');
 const adminUserController = require('../controllers/admin.user.controller');
 const adminAgentController = require('../controllers/admin.agent.controller');
 const adminStatsController = require('../controllers/admin.stats.controller');
+const adminPermissionsController = require('../controllers/admin.permissions.controller');
 
 // All admin routes require authentication and admin role
 router.use(authenticate);
@@ -32,6 +33,10 @@ router.post('/users/:userId/agents', adminAgentController.assignAgentToUser);
 router.post('/users/:userId/agents/bulk', adminAgentController.bulkAssignAgents);
 router.put('/users/:userId/agents/:agentId', adminAgentController.updateAgentAssignment);
 router.delete('/users/:userId/agents/:agentId', adminAgentController.removeAgentAssignment);
+
+// Mark Permission Management Routes
+router.get('/mark-permissions', adminPermissionsController.getMarkPermissions);
+router.post('/users/:userId/agents/:agentId/mark-permission', adminPermissionsController.toggleMarkPermission);
 
 // Admin Statistics & Monitoring
 router.get('/stats', adminStatsController.getAdminStats);

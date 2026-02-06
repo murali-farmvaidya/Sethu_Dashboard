@@ -70,19 +70,24 @@ async function getAgentSessions(req, res) {
         }
 
         // Get sessions
+        const conversationsTableName = getTableName('Conversations');
         const sessions = await sequelize.query(`
             SELECT 
-                session_id,
-                agent_id,
-                agent_name,
-                status,
-                started_at,
-                ended_at,
-                EXTRACT(EPOCH FROM (ended_at - started_at)) as duration_seconds,
-                metadata
-            FROM ${sessionsTableName}
-            WHERE ${whereClause}
-            ORDER BY started_at DESC
+                s.session_id,
+                s.agent_id,
+                s.agent_name,
+                s.status,
+                s.started_at,
+                s.ended_at,
+                EXTRACT(EPOCH FROM (s.ended_at - s.started_at)) as duration_seconds,
+                s.metadata,
+                c.review_status,
+                c.reviewed_by,
+                c.reviewed_at
+            FROM ${sessionsTableName} s
+            LEFT JOIN ${conversationsTableName} c ON s.session_id = c.session_id
+            WHERE ${whereClause.replace(/(\w+) =/g, 's.$1 =')}
+            ORDER BY s.started_at DESC
             LIMIT :limit OFFSET :offset
         `, {
             replacements,

@@ -14,7 +14,7 @@ export default function Dashboard() {
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalAgents, setTotalAgents] = useState(0);
-    const [sortBy, setSortBy] = useState('session_count');
+    const [sortBy, setSortBy] = useState('recent');
     const [sortOrder, setSortOrder] = useState('desc');
     const navigate = useNavigate();
 
@@ -106,10 +106,6 @@ export default function Dashboard() {
             <div className="dashboard-layout">
                 {/* Left Sidebar */}
                 <aside className="dashboard-sidebar">
-                    <div className="sidebar-header">
-                        <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
-                    </div>
-
                     <div className="stats-vertical">
                         <div className="stat-card-vertical">
                             <div className="stat-icon"><Users size={24} /></div>
@@ -151,7 +147,7 @@ export default function Dashboard() {
 
                 {/* Main Content */}
                 <main className="dashboard-main">
-                    <header className="dashboard-header">
+                    <header className="dashboard-header-title">
                         <h1>Sevak Admin Dashboard</h1>
                     </header>
 
@@ -172,11 +168,39 @@ export default function Dashboard() {
                         <h2 className="section-title">Agents Overview</h2>
                         <div className="section-controls">
                             <span className="section-count">{totalAgents} agents</span>
-                            <button className="btn-sort" onClick={() => handleSort('session_count')}>
+                            <button
+                                className="btn-sort"
+                                onClick={() => handleSort('recent')}
+                                style={{
+                                    background: sortBy === 'recent' ? '#e6f4ed' : 'white',
+                                    borderColor: sortBy === 'recent' ? 'var(--primary)' : 'var(--border)',
+                                    color: sortBy === 'recent' ? 'var(--primary)' : 'var(--text)'
+                                }}
+                            >
+                                <ArrowUpDown size={16} />
+                                Recently Active {sortBy === 'recent' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+                            </button>
+                            <button
+                                className="btn-sort"
+                                onClick={() => handleSort('session_count')}
+                                style={{
+                                    background: sortBy === 'session_count' ? '#e6f4ed' : 'white',
+                                    borderColor: sortBy === 'session_count' ? 'var(--primary)' : 'var(--border)',
+                                    color: sortBy === 'session_count' ? 'var(--primary)' : 'var(--text)'
+                                }}
+                            >
                                 <ArrowUpDown size={16} />
                                 Sessions {sortBy === 'session_count' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                             </button>
-                            <button className="btn-sort" onClick={() => handleSort('name')}>
+                            <button
+                                className="btn-sort"
+                                onClick={() => handleSort('name')}
+                                style={{
+                                    background: sortBy === 'name' ? '#e6f4ed' : 'white',
+                                    borderColor: sortBy === 'name' ? 'var(--primary)' : 'var(--border)',
+                                    color: sortBy === 'name' ? 'var(--primary)' : 'var(--text)'
+                                }}
+                            >
                                 <ArrowUpDown size={16} />
                                 Name {sortBy === 'name' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                             </button>
@@ -195,6 +219,11 @@ export default function Dashboard() {
                                     </span>
                                 </div>
                                 <p className="text-small text-muted agent-id">ID: {agent.agent_id}</p>
+                                {agent.computed_last_session && (
+                                    <p className="text-small" style={{ color: '#008F4B', fontWeight: '500', marginTop: '4px' }}>
+                                        Last Active: {new Date(agent.computed_last_session).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                )}
                             </div>
                         ))}
                         {agents.length === 0 && !loading && <p className="text-center text-muted">No agents found.</p>}

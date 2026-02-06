@@ -26,6 +26,8 @@ export default function AgentDetails() {
     const [agentCreatedAt, setAgentCreatedAt] = useState(null);
     const [agentLastSynced, setAgentLastSynced] = useState(null);
     const [generatingSummary, setGeneratingSummary] = useState({});
+    const [reviewFilter, setReviewFilter] = useState('all');
+    const [updatingStatus, setUpdatingStatus] = useState({});
     const navigate = useNavigate();
 
     const fetchSessions = useCallback(async () => {
@@ -148,6 +150,33 @@ export default function AgentDetails() {
         }
     };
 
+    // Get row background color based on review status
+    const getRowBackgroundColor = (reviewStatus) => {
+        switch (reviewStatus) {
+            case 'needs_review': return '#FFF3CD'; // Yellow
+            case 'completed': return '#D4EDDA';    // Green
+            default: return 'white';                // Pending = white
+        }
+    };
+
+    // Handle review status change
+    const handleStatusChange = async (sessionId, newStatus) => {
+        setUpdatingStatus(prev => ({ ...prev, [sessionId]: true }));
+        try {
+            await api.patch(`/api/user/conversations/${sessionId}/review-status`, { status: newStatus });
+            // Refresh sessions to show updated status
+            fetchSessions();
+        } catch (err) {
+            console.error('Failed to update review status:', err);
+            const errorMessage = err.response?.data?.error || 'Failed to update status. Please try again.';
+            alert(errorMessage);
+            // Refresh to revert the UI if needed
+            fetchSessions();
+        } finally {
+            setUpdatingStatus(prev => ({ ...prev, [sessionId]: false }));
+        }
+    };
+
     const formatTime = (dateStr) => {
         if (!dateStr) return '-';
         const date = new Date(dateStr);
@@ -266,10 +295,6 @@ export default function AgentDetails() {
             <div className="dashboard-layout">
                 {/* Left Sidebar - Agent Info */}
                 <aside className="dashboard-sidebar">
-                    <div className="sidebar-header">
-                        <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
-                    </div>
-
                     <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
                         <h3 style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '1.2rem' }}>About Agent</h3>
 
@@ -320,7 +345,7 @@ export default function AgentDetails() {
 
                 {/* Main Content - Sessions List */}
                 <main className="dashboard-main" style={{ padding: '0', background: '#f5f7fa', height: '100vh', overflowY: 'auto' }}>
-                    <div className="dashboard-header" style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa', marginBottom: '1rem' }}>
+                    <div className="dashboard-header-title" style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa', marginBottom: '1rem' }}>
                         <h1>Agent Sessions</h1>
                     </div>
 
@@ -336,6 +361,70 @@ export default function AgentDetails() {
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 style={{ border: 'none', fontSize: '0.95rem', width: '100%', outline: 'none' }}
                             />
+                        </div>
+
+                        {/* Review Status Filters */}
+                        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                            <button
+                                onClick={() => setReviewFilter('all')}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    border: reviewFilter === 'all' ? '2px solid var(--primary)' : '1px solid #ddd',
+                                    background: reviewFilter === 'all' ? 'var(--primary)' : 'white',
+                                    color: reviewFilter === 'all' ? 'white' : '#333',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: reviewFilter === 'all' ? '600' : '400'
+                                }}
+                            >
+                                All
+                            </button>
+                            <button
+                                onClick={() => setReviewFilter('pending')}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    border: reviewFilter === 'pending' ? '2px solid var(--primary)' : '1px solid #ddd',
+                                    background: reviewFilter === 'pending' ? 'var(--primary)' : 'white',
+                                    color: reviewFilter === 'pending' ? 'white' : '#333',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: reviewFilter === 'pending' ? '600' : '400'
+                                }}
+                            >
+                                Pending
+                            </button>
+                            <button
+                                onClick={() => setReviewFilter('needs_review')}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    border: reviewFilter === 'needs_review' ? '2px solid var(--primary)' : '1px solid #ddd',
+                                    background: reviewFilter === 'needs_review' ? 'var(--primary)' : 'white',
+                                    color: reviewFilter === 'needs_review' ? 'white' : '#333',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: reviewFilter === 'needs_review' ? '600' : '400'
+                                }}
+                            >
+                                Needs Review
+                            </button>
+                            <button
+                                onClick={() => setReviewFilter('completed')}
+                                style={{
+                                    padding: '0.5rem 1rem',
+                                    border: reviewFilter === 'completed' ? '2px solid var(--primary)' : '1px solid #ddd',
+                                    background: reviewFilter === 'completed' ? 'var(--primary)' : 'white',
+                                    color: reviewFilter === 'completed' ? 'white' : '#333',
+                                    borderRadius: '6px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.9rem',
+                                    fontWeight: reviewFilter === 'completed' ? '600' : '400'
+                                }}
+                            >
+                                Completed
+                            </button>
                         </div>
 
                         {/* Sorting Controls */}
@@ -361,88 +450,123 @@ export default function AgentDetails() {
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Date</th>
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Time</th>
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', minWidth: '300px' }}>Summary</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Review Status</th>
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Download</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {sessions.map(session => (
-                                            <tr key={session.session_id} className="session-row" style={{ borderBottom: '1px solid #f0f0f0' }}>
-                                                <td className="font-mono clickable-cell session-id-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem', color: 'var(--primary)', cursor: 'pointer' }}>
-                                                    {session.session_id}
-                                                </td>
-                                                <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
-                                                    {formatDate(session.started_at)}
-                                                </td>
-                                                <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
-                                                    {formatTime(session.started_at)} - {formatTime(session.ended_at)} ({formatSecondsToTime(session.duration_seconds)})
-                                                </td>
-                                                <td style={{ padding: '1rem', maxWidth: '350px' }}>
-                                                    {/* If session has a summary, show it */}
-                                                    {session.summary ? (
-                                                        <span style={{ fontSize: '0.85rem', color: '#555', lineHeight: '1.4' }}>
-                                                            {session.summary}
-                                                        </span>
-                                                    ) : session.conversation_count === 0 || !session.conversation_count ? (
-                                                        /* No turns - user didn't speak */
-                                                        <span style={{ fontSize: '0.85rem', color: '#888', fontStyle: 'italic' }}>
-                                                            User did not speak anything
-                                                        </span>
-                                                    ) : !session.ended_at ? (
-                                                        /* Session still active */
-                                                        <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontStyle: 'italic' }}>
-                                                            ⏳ Waiting for user to end session...
-                                                        </span>
-                                                    ) : (
-                                                        /* Session ended but no summary - show generate button */
-                                                        <button
-                                                            className="btn-generate-summary"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleGenerateSummary(session.session_id);
-                                                            }}
-                                                            disabled={generatingSummary[session.session_id]}
-                                                            style={{
-                                                                padding: '0.4rem 0.8rem',
-                                                                fontSize: '0.8rem',
-                                                                background: generatingSummary[session.session_id] ? '#ccc' : 'var(--primary)',
-                                                                color: 'white',
-                                                                border: 'none',
-                                                                borderRadius: '4px',
-                                                                cursor: generatingSummary[session.session_id] ? 'not-allowed' : 'pointer',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: '0.3rem'
-                                                            }}
-                                                        >
-                                                            <RefreshCw size={14} className={generatingSummary[session.session_id] ? 'spin' : ''} />
-                                                            {generatingSummary[session.session_id] ? 'Generating...' : 'Generate Summary'}
-                                                        </button>
-                                                    )}
-                                                </td>
-                                                <td className="download-cell" style={{ padding: '1rem' }}>
-                                                    <div className="dropdown-container">
-                                                        <button
-                                                            className="btn-download"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setDownloadDropdown(downloadDropdown === session.session_id ? null : session.session_id);
-                                                            }}
-                                                        >
-                                                            <Download size={16} />
-                                                            <ChevronDown size={14} />
-                                                        </button>
-                                                        {downloadDropdown === session.session_id && (
-                                                            <div className="dropdown-menu">
-                                                                <button onClick={() => downloadSession(session, 'json')}>JSON</button>
-                                                                <button onClick={() => downloadSession(session, 'csv')}>CSV</button>
-                                                                <button onClick={() => downloadSession(session, 'txt')}>TXT</button>
-                                                            </div>
+                                        {sessions
+                                            .filter(session => {
+                                                if (reviewFilter === 'all') return true;
+                                                return session.review_status === reviewFilter;
+                                            })
+                                            .map(session => (
+                                                <tr
+                                                    key={session.session_id}
+                                                    className="session-row"
+                                                    style={{
+                                                        borderBottom: '1px solid #f0f0f0',
+                                                        background: getRowBackgroundColor(session.review_status)
+                                                    }}
+                                                >
+                                                    <td className="font-mono clickable-cell session-id-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem', color: 'var(--primary)', cursor: 'pointer' }}>
+                                                        {session.session_id}
+                                                    </td>
+                                                    <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
+                                                        {formatDate(session.started_at)}
+                                                    </td>
+                                                    <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
+                                                        {formatTime(session.started_at)} - {formatTime(session.ended_at)} ({formatSecondsToTime(session.duration_seconds)})
+                                                    </td>
+                                                    <td style={{ padding: '1rem', maxWidth: '350px' }}>
+                                                        {/* If session has a summary, show it */}
+                                                        {session.summary ? (
+                                                            <span style={{ fontSize: '0.85rem', color: '#555', lineHeight: '1.4' }}>
+                                                                {session.summary}
+                                                            </span>
+                                                        ) : session.conversation_count === 0 || !session.conversation_count ? (
+                                                            /* No turns - user didn't speak */
+                                                            <span style={{ fontSize: '0.85rem', color: '#888', fontStyle: 'italic' }}>
+                                                                User did not speak anything
+                                                            </span>
+                                                        ) : !session.ended_at ? (
+                                                            /* Session still active */
+                                                            <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontStyle: 'italic' }}>
+                                                                ⏳ Waiting for user to end session...
+                                                            </span>
+                                                        ) : (
+                                                            /* Session ended but no summary - show generate button */
+                                                            <button
+                                                                className="btn-generate-summary"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleGenerateSummary(session.session_id);
+                                                                }}
+                                                                disabled={generatingSummary[session.session_id]}
+                                                                style={{
+                                                                    padding: '0.4rem 0.8rem',
+                                                                    fontSize: '0.8rem',
+                                                                    background: generatingSummary[session.session_id] ? '#ccc' : 'var(--primary)',
+                                                                    color: 'white',
+                                                                    border: 'none',
+                                                                    borderRadius: '4px',
+                                                                    cursor: generatingSummary[session.session_id] ? 'not-allowed' : 'pointer',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '0.3rem'
+                                                                }}
+                                                            >
+                                                                <RefreshCw size={14} className={generatingSummary[session.session_id] ? 'spin' : ''} />
+                                                                {generatingSummary[session.session_id] ? 'Generating...' : 'Generate Summary'}
+                                                            </button>
                                                         )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        {sessions.length === 0 && !loading && <tr><td colSpan="5" className="text-center" style={{ padding: '2rem' }}>No sessions found.</td></tr>}
+                                                    </td>
+                                                    <td style={{ padding: '1rem' }}>
+                                                        <select
+                                                            value={session.review_status || 'pending'}
+                                                            onChange={(e) => {
+                                                                e.stopPropagation();
+                                                                handleStatusChange(session.session_id, e.target.value);
+                                                            }}
+                                                            disabled={updatingStatus[session.session_id]}
+                                                            style={{
+                                                                padding: '0.4rem 0.6rem',
+                                                                fontSize: '0.85rem',
+                                                                border: '1px solid #ddd',
+                                                                borderRadius: '4px',
+                                                                cursor: updatingStatus[session.session_id] ? 'not-allowed' : 'pointer',
+                                                                background: updatingStatus[session.session_id] ? '#f0f0f0' : 'white'
+                                                            }}
+                                                        >
+                                                            <option value="pending">Pending</option>
+                                                            <option value="needs_review">Needs Review</option>
+                                                            <option value="completed">Completed</option>
+                                                        </select>
+                                                    </td>
+                                                    <td className="download-cell" style={{ padding: '1rem' }}>
+                                                        <div className="dropdown-container">
+                                                            <button
+                                                                className="btn-download"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setDownloadDropdown(downloadDropdown === session.session_id ? null : session.session_id);
+                                                                }}
+                                                            >
+                                                                <Download size={16} />
+                                                                <ChevronDown size={14} />
+                                                            </button>
+                                                            {downloadDropdown === session.session_id && (
+                                                                <div className="dropdown-menu">
+                                                                    <button onClick={() => downloadSession(session, 'json')}>JSON</button>
+                                                                    <button onClick={() => downloadSession(session, 'csv')}>CSV</button>
+                                                                    <button onClick={() => downloadSession(session, 'txt')}>TXT</button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        {sessions.length === 0 && !loading && <tr><td colSpan="6" className="text-center" style={{ padding: '2rem' }}>No sessions found.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>

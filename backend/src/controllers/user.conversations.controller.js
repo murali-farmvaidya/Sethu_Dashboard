@@ -283,8 +283,126 @@ async function getConversationDetails(req, res) {
     }
 }
 
+/**
+ * Check if user has permission to mark/review sessions
+ */
+async function checkMarkPermission(userId, agentId) {
+    const User = require('../models/User');
+    const user = await User.findByPk(userId);
+
+    // Super admins always have permission
+    if (user.role === 'super_admin') return true;
+
+    // Check if user has this agent assigned with mark permission
+    const assignment = await UserAgentAssignment.findOne({
+        where: { user_id: userId, agent_id: agentId }
+    });
+
+    if (!assignment) return false;
+
+    // Admins with the agent can mark, or users with explicit can_mark=true
+    return user.role === 'admin' || assignment.can_mark === true;
+}
+
+/**
+ * Update review status for a conversation
+ * PATCH /api/user/conversations/:sessionId/review-status
+ */
+async function updateReviewStatus(req, res) {
+    try {
+        const userId = req.user.user_id;
+        const { sessionId } = req.params;
+        const { status } = req.body; // 'needs_review' | 'completed' | 'pending'
+
+        const conversationsTableName = getTableName('Conversations');
+
+        // Validate status
+        const validStatuses = ['pending', 'needs_review', 'completed'];
+        if (!status || !validStatuses.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid status. Must be one of: pending, needs_review, completed'
+            });
+        }
+
+        // Get conversation and check if it exists
+        const conversations = await sequelize.query(`
+            SELECT * FROM ${conversationsTableName}
+            WHERE session_id = :sessionId
+        `, {
+            replacements: { sessionId },
+            type: sequelize.QueryTypes.SELECT
+        });
+
+        if (conversations.length === 0) {
+            return res.status(404).json({
+                success: false,
+                error: 'Conversation not found'
+            });
+        }
+
+        const conversation = conversations[0];
+
+        // Check if user has permission to mark this session
+        const hasPermission = await checkMarkPermission(userId, conversation.agent_id);
+        if (!hasPermission) {
+            return res.status(403).json({
+                success: false,
+                error: 'You do not have permission to mark sessions for this agent'
+            });
+        }
+
+        // Update review status
+        await sequelize.query(`
+            UPDATE ${conversationsTableName}
+            SET 
+                review_status = :status,
+                reviewed_by = :userId,
+                reviewed_at = NOW(),
+                updated_at = NOW()
+            WHERE session_id = :sessionId
+        `, {
+            replacements: { status, userId, sessionId },
+            type: sequelize.QueryTypes.UPDATE
+        });
+
+        // Fetch updated conversation
+        const updatedConversations = await sequelize.query(`
+            SELECT * FROM ${conversationsTableName}
+            WHERE session_id = :sessionId
+        `, {
+            replacements: { sessionId },
+            type: sequelize.QueryTypes.SELECT
+        });
+
+        await logAudit({
+            userId,
+            action: 'update_review_status',
+            resourceType: 'conversation',
+            resourceId: sessionId,
+            metadata: { new_status: status },
+            req
+        });
+
+        logger.info(`Session ${sessionId} marked as '${status}' by user ${userId}`);
+
+        res.json({
+            success: true,
+            conversation: updatedConversations[0]
+        });
+
+    } catch (error) {
+        logger.error('Update review status error:', error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update review status'
+        });
+    }
+}
+
 module.exports = {
     getSessionConversations,
     getAgentConversations,
-    getConversationDetails
+    getConversationDetails,
+    updateReviewStatus
 };
