@@ -82,10 +82,6 @@ export default function UserDashboard() {
       <div className="dashboard-layout">
         {/* Left Sidebar */}
         <aside className="dashboard-sidebar">
-          <div className="sidebar-header">
-            <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer', maxWidth: '100%' }} onClick={() => navigate('/user/dashboard')} />
-          </div>
-
           <div className="stats-vertical">
             <div className="stat-card-vertical">
               <div className="stat-icon"><Users size={24} /></div>

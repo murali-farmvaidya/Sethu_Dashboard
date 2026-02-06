@@ -1,4 +1,8 @@
 import 'dotenv/config';
+process.env.APP_ENV = 'production'; // Force production to use correct tables
+console.log('🌍 Setting up environment:', process.env.APP_ENV);
+console.log('🔑 Azure Key Configured:', !!process.env.AZURE_OPENAI_API_KEY);
+console.log('📍 Azure Endpoint:', process.env.AZURE_OPENAI_ENDPOINT);
 import express from 'express';
 import pg from 'pg';
 import cors from 'cors';
@@ -266,9 +270,41 @@ const initDatabase = async () => {
     }
 };
 
-// OpenAI Configuration
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// AI Configuration (Supports both OpenAI and Azure OpenAI)
+const isAzure = !!process.env.AZURE_OPENAI_API_KEY;
+console.log('🤖 AI Integration Mode:', isAzure ? 'Azure OpenAI' : 'Standard OpenAI');
+const OPENAI_API_KEY = (process.env.AZURE_OPENAI_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+const AZURE_ENDPOINT = (process.env.AZURE_OPENAI_ENDPOINT || '').trim();
+const AZURE_DEPLOYMENT = (process.env.AZURE_OPENAI_DEPLOYMENT_ID || 'gpt-4o-mini').trim();
+const AZURE_VERSION = (process.env.AZURE_OPENAI_API_VERSION || '2024-08-01-preview').trim();
+
+const getOpenAIUrl = () => {
+    if (isAzure) {
+        if (!AZURE_ENDPOINT) {
+            console.error('❌ AZURE_OPENAI_ENDPOINT is not defined in .env');
+            return null;
+        }
+        // Normalize endpoint (ensure it ends without slash)
+        const base = AZURE_ENDPOINT.endsWith('/') ? AZURE_ENDPOINT.slice(0, -1) : AZURE_ENDPOINT;
+        const url = `${base}/openai/deployments/${AZURE_DEPLOYMENT}/chat/completions?api-version=${AZURE_VERSION}`;
+        console.log(`🤖 AI Service URL: ${url}`);
+        return url;
+    }
+    return 'https://api.openai.com/v1/chat/completions';
+};
+
+const getOpenAIHeaders = () => {
+    if (isAzure) {
+        return {
+            'api-key': OPENAI_API_KEY,
+            'Content-Type': 'application/json'
+        };
+    }
+    return {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+    };
+};
 
 // --- DATABASE CONNECTION ---
 // Migrated from legacy users.json to PostgreSQL
@@ -574,15 +610,20 @@ app.get('/api/agents', async (req, res) => {
         }
 
         const whereSql = whereClauses.length > 0 ? ` WHERE ` + whereClauses.join(' AND ') : '';
-        const finalSortBy = sortBy === 'session_count' ? 'computed_session_count' : `a."${sortBy}"`;
+        const finalSortBy = sortBy === 'session_count'
+            ? 'computed_session_count'
+            : sortBy === 'recent'
+                ? 'computed_last_session'
+                : `a."${sortBy}"`;
 
         const dataQuery = `
             SELECT a.*, 
             (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_session_count,
-            (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01') as computed_total_duration
+            (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01') as computed_total_duration,
+            (SELECT MAX(started_at) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_last_session
             ${baseQuery}
             ${whereSql}
-            ORDER BY ${finalSortBy} ${sortOrder}
+            ORDER BY ${finalSortBy} ${sortOrder} NULLS LAST
             LIMIT $${params.length + 1} OFFSET $${params.length + 2}
         `;
 
@@ -774,8 +815,10 @@ app.get('/api/sessions', async (req, res) => {
 app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
     const { sessionId } = req.params;
 
-    if (!OPENAI_API_KEY) {
-        return res.status(500).json({ error: 'OpenAI API key not configured' });
+    const url = getOpenAIUrl();
+    if (!OPENAI_API_KEY || !url) {
+        console.error('❌ AI Configuration Missing:', { hasKey: !!OPENAI_API_KEY, hasUrl: !!url });
+        return res.status(500).json({ error: 'AI integration not fully configured' });
     }
 
     try {
@@ -824,11 +867,12 @@ CONTENT:
 - Briefly state the response or solution provided.
 - Keep it concise and under 50 words.`;
 
-        // Call OpenAI
-        const openaiResponse = await axios.post(
-            OPENAI_API_URL,
+        // Call AI Service
+        const aiResponse = await axios.post(
+            getOpenAIUrl(),
             {
-                model: 'gpt-4o-mini',
+                // Only include model for standard OpenAI
+                ...(!isAzure && { model: 'gpt-4o-mini' }),
                 messages: [
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: conversationText }
@@ -837,15 +881,12 @@ CONTENT:
                 temperature: 0.3
             },
             {
-                headers: {
-                    'Authorization': `Bearer ${OPENAI_API_KEY}`,
-                    'Content-Type': 'application/json'
-                },
+                headers: getOpenAIHeaders(),
                 timeout: 30000
             }
         );
 
-        const summary = openaiResponse.data?.choices?.[0]?.message?.content?.trim();
+        const summary = aiResponse.data?.choices?.[0]?.message?.content?.trim();
 
         if (!summary) {
             return res.status(500).json({ error: 'Failed to generate summary' });
@@ -857,14 +898,22 @@ CONTENT:
         res.json({ summary });
     } catch (error) {
         if (error.response) {
-            console.error('OpenAI Error Details:', error.response.status, error.response.data);
+            console.error('❌ AI Service Error Details:', {
+                status: error.response.status,
+                data: error.response.data,
+                headers: error.response.headers
+            });
             res.status(error.response.status).json({
-                error: `OpenAI error: ${error.response.status}`,
+                error: `AI Service error: ${error.response.status}`,
                 details: error.response.data
             });
         } else {
-            console.error('Summary generation error:', error.message);
-            res.status(500).json({ error: 'Failed to generate summary: ' + error.message });
+            console.error('❌ Summary generation failure:', error);
+            res.status(500).json({
+                error: 'Internal server error during summary generation',
+                message: error.message,
+                details: error.stack // Temporarily exposing stack for debugging
+            });
         }
     }
 });

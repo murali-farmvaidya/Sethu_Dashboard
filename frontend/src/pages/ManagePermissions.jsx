@@ -96,9 +96,6 @@ export default function ManagePermissions() {
             <Header />
             <div className="dashboard-layout">
                 <aside className="dashboard-sidebar">
-                    <div className="sidebar-header">
-                        <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
-                    </div>
                     <div className="session-info-sidebar" style={{ flex: 1, padding: '1.5rem' }}>
                         <h3 style={{ marginBottom: '1rem', color: 'var(--primary)' }}>Mark Permissions</h3>
                         <p style={{ fontSize: '0.9rem', color: '#666', lineHeight: '1.6' }}>

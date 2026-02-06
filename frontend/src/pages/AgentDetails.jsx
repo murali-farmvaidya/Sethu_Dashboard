@@ -295,10 +295,6 @@ export default function AgentDetails() {
             <div className="dashboard-layout">
                 {/* Left Sidebar - Agent Info */}
                 <aside className="dashboard-sidebar">
-                    <div className="sidebar-header">
-                        <img src="/logo.png" alt="FarmVaidya" className="sidebar-logo" style={{ cursor: 'pointer' }} onClick={() => navigate('/')} />
-                    </div>
-
                     <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
                         <h3 style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '1.2rem' }}>About Agent</h3>
 
@@ -349,7 +345,7 @@ export default function AgentDetails() {
 
                 {/* Main Content - Sessions List */}
                 <main className="dashboard-main" style={{ padding: '0', background: '#f5f7fa', height: '100vh', overflowY: 'auto' }}>
-                    <div className="dashboard-header" style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa', marginBottom: '1rem' }}>
+                    <div className="dashboard-header-title" style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa', marginBottom: '1rem' }}>
                         <h1>Agent Sessions</h1>
                     </div>
 
