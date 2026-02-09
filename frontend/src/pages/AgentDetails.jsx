@@ -530,7 +530,7 @@ export default function AgentDetails() {
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Time</th>
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', minWidth: '300px' }}>Summary</th>
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Review Status</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Actions</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', minWidth: '160px' }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -625,7 +625,7 @@ export default function AgentDetails() {
                                                             <option value="completed">Completed</option>
                                                         </select>
                                                     </td>
-                                                    <td className="download-cell" style={{ padding: '1rem' }}>
+                                                    <td className="download-cell" style={{ padding: '1rem', whiteSpace: 'nowrap' }}>
                                                         <div className="dropdown-container" style={{ display: 'flex', gap: '0.5rem' }}>
                                                             <button
                                                                 className="btn-download"
@@ -656,7 +656,7 @@ export default function AgentDetails() {
                                                                             onClick={(e) => handleDeleteSession(session.session_id, e, false)}
                                                                             title="Hide Session"
                                                                         >
-                                                                            <Trash2 size={16} />
+                                                                            <EyeOff size={16} />
                                                                         </button>
                                                                     )}
                                                                     <button
@@ -665,7 +665,7 @@ export default function AgentDetails() {
                                                                         onClick={(e) => handleDeleteSession(session.session_id, e, true)}
                                                                         title="Permanently Delete"
                                                                     >
-                                                                        <ShieldAlert size={16} />
+                                                                        <Trash2 size={16} />
                                                                     </button>
                                                                 </>
                                                             )}
