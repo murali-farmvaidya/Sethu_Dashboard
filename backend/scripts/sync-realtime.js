@@ -584,7 +584,7 @@ async function runSyncCycle() {
 }
 
 async function main() {
-    logger.info('🚀 Starting Realtime Dashboard Sync Service (PostgreSQL)');
+    logger.info('🚀 Starting Realtime Dashboard Sync Service v2.1 (Protected)');
     logEnvironmentInfo(); // Show which tables we're using
     logger.info(`📅 Filtering data from: ${SYNC_START_DATE.toISOString()}`);
 
