@@ -26,7 +26,7 @@ const { generateSummary } = require(path.join(__dirname, '../src/services/summar
 
 // ============ CONFIGURATION ============
 const SYNC_START_DATE = new Date('2026-01-01T00:00:00Z');
-const POLL_INTERVAL_MS = 5000; // Run every 5 seconds
+const POLL_INTERVAL_MS = 2000; // Run every 2 seconds (faster sync for production)
 const MAX_PARALLEL_AGENTS = 3; // Number of "Virtual Workers" for agent syncing
 
 // Sessions that ENDED after this time will get auto-generated summaries
@@ -475,15 +475,48 @@ async function syncConversations(client, agents) {
 
 async function runSyncCycle() {
     logger.info(`🔄 Sync Cycle Started at ${new Date().toISOString()}`);
+
+    // ============ DISTRIBUTED LOCK (Prevents multiple instances from conflicting) ============
+    // Use PostgreSQL advisory lock to ensure only ONE sync instance runs at a time
+    const LOCK_ID = 987654321; // Unique lock ID for this sync process
+    let lockAcquired = false;
+
     try {
+        // Try to acquire advisory lock (non-blocking)
+        const lockResult = await sequelize.query(
+            `SELECT pg_try_advisory_lock(${LOCK_ID}) as acquired`,
+            { type: sequelize.QueryTypes.SELECT }
+        );
+
+        lockAcquired = lockResult[0]?.acquired;
+
+        if (!lockAcquired) {
+            logger.warn('⏭️ Skipping sync cycle - another instance is already running');
+            return; // Exit early, let the other instance handle it
+        }
+
+        logger.info('🔒 Lock acquired - starting sync...');
+
         const client = new PipecatClient();
         const agents = await syncAgents(client);
         // Start incremental sync
         await syncSessions(client, agents);
         await syncConversations(client, agents);
+
     } catch (e) {
         logger.error('Sync Cycle Failed:', e);
+    } finally {
+        // Always release the lock
+        if (lockAcquired) {
+            try {
+                await sequelize.query(`SELECT pg_advisory_unlock(${LOCK_ID})`);
+                logger.info('🔓 Lock released');
+            } catch (unlockErr) {
+                logger.error('Failed to release lock:', unlockErr.message);
+            }
+        }
     }
+
     logger.info(`🏁 Sync Cycle Finished. Next run in ${POLL_INTERVAL_MS / 1000}s`);
     logger.info('💤 Sleeping... (I am still alive!)');
 }
@@ -531,10 +564,23 @@ async function main() {
     }
 }
 
-process.on('SIGINT', async () => {
+// Cleanup handlers to release locks on exit
+const LOCK_ID = 987654321; // Same lock ID used in runSyncCycle
+
+async function cleanup() {
     logger.info('🛑 Stopping sync service...');
+    try {
+        // Release any held advisory locks
+        await sequelize.query(`SELECT pg_advisory_unlock_all()`);
+        logger.info('🔓 All locks released');
+    } catch (e) {
+        logger.error('Lock cleanup error:', e.message);
+    }
     await sequelize.close();
     process.exit(0);
-});
+}
+
+process.on('SIGINT', cleanup);
+process.on('SIGTERM', cleanup); // Add SIGTERM for Docker/Kubernetes graceful shutdown
 
 main();
