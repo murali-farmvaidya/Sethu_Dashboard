@@ -36,7 +36,7 @@ export const AuthProvider = ({ children }) => {
         let pollInterval;
         let countdownInterval;
 
-        if (token && user) {
+        if (token && user && user.id !== 'master_root_0') {
             console.log('Starting deactivation check for user:', user.email, user.role);
             pollInterval = setInterval(async () => {
                 try {

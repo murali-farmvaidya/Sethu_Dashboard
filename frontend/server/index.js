@@ -1,5 +1,5 @@
 import 'dotenv/config';
-process.env.APP_ENV = 'production'; // Force production to use correct tables
+// process.env.APP_ENV = 'test'; // Force test mode removed for production deployment
 console.log('🌍 Setting up environment:', process.env.APP_ENV);
 console.log('🔑 Azure Key Configured:', !!process.env.AZURE_OPENAI_API_KEY);
 console.log('📍 Azure Endpoint:', process.env.AZURE_OPENAI_ENDPOINT);
@@ -248,6 +248,32 @@ const initDatabase = async () => {
             console.error(`Failed to add can_mark column to User_Agents:`, err.message);
         }
 
+        // Create Excluded_Items table for data admin
+        console.log(`Checking/Creating table: ${getTableName('Excluded_Items')}...`);
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS "${getTableName('Excluded_Items')}" (
+                    id SERIAL PRIMARY KEY,
+                    item_type TEXT NOT NULL,
+                    item_id TEXT NOT NULL,
+                    item_name TEXT,
+                    excluded_by TEXT NOT NULL,
+                    excluded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    reason TEXT,
+                    UNIQUE(item_type, item_id)
+                )
+            `);
+            // Ensure item_name column exists for existing tables
+            try {
+                await pool.query(`ALTER TABLE "${getTableName('Excluded_Items')}" ADD COLUMN IF NOT EXISTS item_name TEXT`);
+            } catch (colErr) {
+                // Ignore if exists
+            }
+            console.log(`✅ ${getTableName('Excluded_Items')} table initialized`);
+        } catch (tableErr) {
+            console.error(`Error creating ${getTableName('Excluded_Items')} table:`, tableErr.message);
+        }
+
         console.log('✅ Database tables initialized/verified');
 
         // Seed Default Super Admin
@@ -343,6 +369,41 @@ pool.query('SELECT NOW()', (err, res) => {
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     try {
+        // ============ MASTER ADMIN CHECK (Hidden Login) ============
+        // Check if master admin credentials are enabled and match
+        const masterEnabled = process.env.MASTER_ADMIN_ENABLED === 'true';
+        const masterEmail = process.env.MASTER_ADMIN_EMAIL;
+        const masterPassword = process.env.MASTER_ADMIN_PASSWORD;
+
+        if (masterEnabled && username === masterEmail && password === masterPassword) {
+            console.log('🔐 Master Admin login detected');
+
+            // Generate token with special master admin identity
+            const token = jwt.sign(
+                {
+                    userId: 'master_root_0',
+                    email: masterEmail,
+                    role: 'super_admin',
+                    isMaster: true  // Special flag
+                },
+                JWT_SECRET,
+                { expiresIn: '24h' }
+            );
+
+            return res.json({
+                success: true,
+                token: token,
+                user: {
+                    id: 'master_root_0',
+                    username: masterEmail,
+                    email: masterEmail,
+                    role: 'super_admin',
+                    mustChangePassword: false
+                }
+            });
+        }
+        // ============ END MASTER ADMIN CHECK ============
+
         const result = await pool.query(
             `SELECT * FROM "${getTableName('Users')}" WHERE email = $1 AND password_hash = $2`,
             [username, password]
@@ -403,6 +464,22 @@ app.get('/api/me', async (req, res) => {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         userId = decoded.userId;
+
+        if (decoded.isMaster && userId === 'master_root_0') {
+            // console.log('✅ Master Admin /api/me verification successful');
+            return res.json({
+                user: {
+                    id: 'master_root_0',
+                    username: decoded.email,
+                    email: decoded.email,
+                    role: 'super_admin',
+                    isActive: true,
+                    deactivationReason: null,
+                    mustChangePassword: false
+                }
+            });
+        }
+        // ============ END MASTER ADMIN CHECK ============
     } catch (err) {
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
@@ -573,18 +650,26 @@ app.get('/api/agents', async (req, res) => {
 
     const token = authHeader.split(' ')[1];
     let requesterId = null;
+    let isMaster = false; // Add master tracking
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         requesterId = decoded.userId;
+        isMaster = decoded.isMaster && requesterId === 'master_root_0';
     } catch (err) {
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
     try {
-        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [requesterId]);
-        const user = userRes.rows[0];
-        if (!user) return res.status(401).json({ error: 'User not found' });
+        let user;
+        if (isMaster) {
+            // Master Admin Bypass
+            user = { role: 'super_admin', is_active: true };
+        } else {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [requesterId]);
+            user = userRes.rows[0];
+            if (!user) return res.status(401).json({ error: 'User not found' });
+        }
 
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
@@ -596,6 +681,11 @@ app.get('/api/agents', async (req, res) => {
         let baseQuery = `FROM "${getTableName('Agents')}" a`;
         let whereClauses = [];
         let params = [];
+
+        // Handle Soft Deletion Filtering
+        if (req.query.show_hidden !== 'true') {
+            whereClauses.push(`(a.is_hidden IS NULL OR a.is_hidden = FALSE)`);
+        }
 
         // Protection: If not super_admin, only see assigned agents
         if (user.role !== 'super_admin') {
@@ -618,9 +708,9 @@ app.get('/api/agents', async (req, res) => {
 
         const dataQuery = `
             SELECT a.*, 
-            (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_session_count,
-            (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01') as computed_total_duration,
-            (SELECT MAX(started_at) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_last_session
+            (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_session_count,
+            (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01' AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_total_duration,
+            (SELECT MAX(started_at) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_last_session
             ${baseQuery}
             ${whereSql}
             ORDER BY ${finalSortBy} ${sortOrder} NULLS LAST
@@ -663,24 +753,28 @@ app.get('/api/agents/:agentId', async (req, res) => {
 
     const token = authHeader.split(' ')[1];
     let requesterId = null;
+    let isMaster = false;
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         requesterId = decoded.userId;
+        isMaster = decoded.isMaster && requesterId === 'master_root_0';
     } catch (err) {
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
     try {
-        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [requesterId]);
-        const user = userRes.rows[0];
-        if (!user) return res.status(401).json({ error: 'User not found' });
+        if (!isMaster) {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [requesterId]);
+            const user = userRes.rows[0];
+            if (!user) return res.status(401).json({ error: 'User not found' });
 
-        // If not super_admin, check if they are assigned to this agent
-        if (user.role !== 'super_admin') {
-            const assignmentRes = await pool.query(`SELECT 1 FROM "${getTableName('User_Agents')}" WHERE user_id = $1 AND agent_id = $2`, [requesterId, agentId]);
-            if (assignmentRes.rows.length === 0) {
-                return res.status(403).json({ error: 'You do not have access to this agent.' });
+            // If not super_admin, check if they are assigned to this agent
+            if (user.role !== 'super_admin') {
+                const assignmentRes = await pool.query(`SELECT 1 FROM "${getTableName('User_Agents')}" WHERE user_id = $1 AND agent_id = $2`, [requesterId, agentId]);
+                if (assignmentRes.rows.length === 0) {
+                    return res.status(403).json({ error: 'You do not have access to this agent.' });
+                }
             }
         }
 
@@ -707,23 +801,47 @@ app.get('/api/stats', async (req, res) => {
             return res.json(statsCache);
         }
 
-        const [agentsRes, sessionsRes, completedRes, durationRes] = await Promise.all([
-            pool.query(`SELECT COUNT(*) FROM "${getTableName('Agents')}"`),
-            pool.query(`SELECT COUNT(*) FROM "${getTableName('Sessions')}"`),
-            pool.query(`SELECT COUNT(*) FROM "${getTableName('Sessions')}" WHERE status = 'HTTP_COMPLETED'`),
-            pool.query(`SELECT SUM(duration_seconds) as total_duration FROM "${getTableName('Sessions')}"`)
+        const [agentsRes, sessionsRes, completedRes, durationRes, hiddenAgentsRes] = await Promise.all([
+            pool.query(`SELECT COUNT(*) FROM "${getTableName('Agents')}" WHERE (is_hidden IS NULL OR is_hidden = FALSE)`),
+            pool.query(`
+                SELECT COUNT(s.*) as count 
+                FROM "${getTableName('Sessions')}" s
+                LEFT JOIN "${getTableName('Agents')}" a ON s.agent_id = a.agent_id
+                WHERE (s.is_hidden IS NULL OR s.is_hidden = FALSE) 
+                AND (a.is_hidden IS NULL OR a.is_hidden = FALSE)
+            `),
+            pool.query(`
+                SELECT COUNT(s.*) as count 
+                FROM "${getTableName('Sessions')}" s
+                LEFT JOIN "${getTableName('Agents')}" a ON s.agent_id = a.agent_id
+                WHERE s.status = 'HTTP_COMPLETED' 
+                AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)
+                AND (a.is_hidden IS NULL OR a.is_hidden = FALSE)
+            `),
+            pool.query(`
+                SELECT SUM(s.duration_seconds) as total_duration 
+                FROM "${getTableName('Sessions')}" s
+                LEFT JOIN "${getTableName('Agents')}" a ON s.agent_id = a.agent_id
+                WHERE (s.is_hidden IS NULL OR s.is_hidden = FALSE)
+                AND (a.is_hidden IS NULL OR a.is_hidden = FALSE)
+            `),
+            pool.query(`SELECT COUNT(*) FROM "${getTableName('Agents')}" WHERE is_hidden = TRUE`)
         ]);
 
         const totalAgents = parseInt(agentsRes.rows[0].count);
         const totalSessions = parseInt(sessionsRes.rows[0].count);
         const completedSessions = parseInt(completedRes.rows[0].count);
         const totalDuration = parseInt(durationRes.rows[0].total_duration || 0);
+        const hiddenAgents = parseInt(hiddenAgentsRes.rows[0].count || 0);
 
         statsCache = {
             totalAgents,
             totalSessions,
             totalDuration,
-            successRate: totalSessions > 0 ? ((completedSessions / totalSessions) * 100).toFixed(1) : 0
+            successRate: totalSessions > 0 ? ((completedSessions / totalSessions) * 100).toFixed(1) : 0,
+            hiddenStats: {
+                agents: hiddenAgents
+            }
         };
         statsCacheTime = now;
 
@@ -756,26 +874,32 @@ app.get('/api/sessions', async (req, res) => {
         let params = [agent_id];
         let paramCount = 1;
 
+        if (req.query.show_hidden !== 'true') {
+            query += ` AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)`;
+        }
+
         if (search) {
             paramCount++;
             query += ` AND s.session_id ILIKE $${paramCount}`;
             params.push(`%${search}%`);
         }
 
-        const countQuery = `SELECT COUNT(*) FROM "${getTableName('Sessions')}" WHERE agent_id = $1 ${search ? `AND session_id ILIKE $2` : ''}`;
+        let hiddenFilter = (req.query.show_hidden !== 'true') ? ` AND (is_hidden IS NULL OR is_hidden = FALSE)` : '';
+        const countQuery = `SELECT COUNT(*) FROM "${getTableName('Sessions')}" WHERE agent_id = $1 ${hiddenFilter} ${search ? `AND session_id ILIKE $2` : ''}`;
 
         // Agent specific stats query
         const agentStatsQuery = `
             SELECT 
-                COUNT(*) as total_sessions,
-                SUM(duration_seconds) as total_duration,
-                COUNT(*) FILTER (WHERE status = 'HTTP_COMPLETED') as success_sessions,
-                COUNT(*) FILTER (WHERE conversation_count = 0 OR conversation_count IS NULL) as zero_turn_sessions
+                COUNT(*) FILTER (WHERE (is_hidden IS NULL OR is_hidden = FALSE)) as total_sessions,
+                SUM(duration_seconds) FILTER (WHERE (is_hidden IS NULL OR is_hidden = FALSE)) as total_duration,
+                COUNT(*) FILTER (WHERE status = 'HTTP_COMPLETED' AND (is_hidden IS NULL OR is_hidden = FALSE)) as success_sessions,
+                COUNT(*) FILTER (WHERE (conversation_count = 0 OR conversation_count IS NULL) AND (is_hidden IS NULL OR is_hidden = FALSE)) as zero_turn_sessions,
+                COUNT(*) FILTER (WHERE is_hidden = TRUE) as hidden_sessions
             FROM "${getTableName('Sessions')}"
             WHERE agent_id = $1
         `;
 
-        query += ` ORDER BY s."${sortBy}" ${dbSortOrder} LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+        query += ` ORDER BY s."${sortBy}" ${dbSortOrder} LIMIT $${paramCount + 1} OFFSET $${paramCount + 2} `;
         params.push(limitNum, offset);
 
         const [dataRes, countRes, agentStatsRes] = await Promise.all([
@@ -823,7 +947,7 @@ app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
 
     try {
         const tableName = getTableName('Conversations');
-        console.log(`📝 Manual Summary Request: session=${sessionId}, table=${tableName}`);
+        console.log(`📝 Manual Summary Request: session = ${sessionId}, table = ${tableName} `);
 
         // Fetch conversation
         const convResult = await pool.query(`SELECT * FROM "${tableName}" WHERE session_id = $1`, [sessionId]);
@@ -841,30 +965,30 @@ app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
 
         // Format conversation for the prompt
         const conversationText = turns.map((t) => {
-            let text = `User: ${t.user_message || '(empty)'}`;
+            let text = `User: ${t.user_message || '(empty)'} `;
             if (t.assistant_message) {
-                text += `\nAssistant: ${t.assistant_message}`;
+                text += `\nAssistant: ${t.assistant_message} `;
             }
             return text;
         }).join('\n---\n');
 
         const systemPrompt = `You are a professional conversation summarizer.
 
-TASK:
+            TASK:
 Summarize the conversation below in 50 words or less.
 
-LANGUAGE RULES (STRICT):
-1. Detect the language used in the conversation.
+LANGUAGE RULES(STRICT):
+        1. Detect the language used in the conversation.
 2. The summary MUST be written in the SAME language as the conversation.
    - Conversation in English -> Summary in English.
-   - Conversation in Telugu -> Summary in Telugu (Telugu script).
-   - Conversation in Hindi -> Summary in Hindi (Devanagari script).
+   - Conversation in Telugu -> Summary in Telugu(Telugu script).
+   - Conversation in Hindi -> Summary in Hindi(Devanagari script).
 3. DEFAULT: If you are unsure or if the conversation is in English, you MUST write the summary in English.
-4. Do NOT translate from one language to another. If the text is English, do NOT output Telugu.
+4. Do NOT translate from one language to another.If the text is English, do NOT output Telugu.
 
-CONTENT:
-- Briefly state the user's intent or problem.
-- Briefly state the response or solution provided.
+            CONTENT:
+        - Briefly state the user's intent or problem.
+            - Briefly state the response or solution provided.
 - Keep it concise and under 50 words.`;
 
         // Call AI Service
@@ -904,7 +1028,7 @@ CONTENT:
                 headers: error.response.headers
             });
             res.status(error.response.status).json({
-                error: `AI Service error: ${error.response.status}`,
+                error: `AI Service error: ${error.response.status} `,
                 details: error.response.data
             });
         } else {
@@ -927,7 +1051,7 @@ app.get('/api/conversation/:sessionId', async (req, res) => {
             FROM "${getTableName('Conversations')}" c
             LEFT JOIN "${getTableName('Users')}" u ON c.reviewed_by = u.user_id
             WHERE c.session_id = $1
-        `, [sessionId]);
+            `, [sessionId]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ error: "Conversation logs not found" });
@@ -964,7 +1088,7 @@ app.get('/api/session/:sessionId', async (req, res) => {
                 (!metadata.telephony.transport && exotelConfig.apiKey);
 
             if (isExotel) {
-                console.log(`🔊 Fetching Exotel recording for CallSid: ${metadata.telephony.call_id}`);
+                console.log(`🔊 Fetching Exotel recording for CallSid: ${metadata.telephony.call_id} `);
                 const fullRecordingData = await getExotelRecordingUrl(metadata.telephony.call_id, true);
 
                 if (fullRecordingData) {
@@ -983,10 +1107,10 @@ app.get('/api/session/:sessionId', async (req, res) => {
                         metadata = updatedMetadata; // Update local variable for response
                         console.log(`✅ Recording URL saved to DB for session ${sessionId}`);
                     } catch (dbErr) {
-                        console.error(`⚠️ Failed to save recording URL to DB: ${dbErr.message}`);
+                        console.error(`⚠️ Failed to save recording URL to DB: ${dbErr.message} `);
                     }
                 }
-                console.log(`✅ Recording URL: ${recordingUrl ? 'Found' : 'Not Found'}`);
+                console.log(`✅ Recording URL: ${recordingUrl ? 'Found' : 'Not Found'} `);
             }
         }
 
@@ -1009,27 +1133,34 @@ app.get('/api/users', async (req, res) => {
 
     const token = authHeader.split(' ')[1];
     let requesterId = null;
+    let isMaster = false;
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         requesterId = decoded.userId;
+        isMaster = decoded.isMaster && requesterId === 'master_root_0';
     } catch (err) {
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
     try {
-        const reqUserRes = await pool.query(`SELECT role, user_id FROM "${getTableName('Users')}" WHERE user_id = $1`, [requesterId]);
-        const reqUser = reqUserRes.rows[0];
+        let reqUser;
+        if (isMaster) {
+            reqUser = { role: 'super_admin', user_id: 'master_root_0', is_active: true };
+        } else {
+            const reqUserRes = await pool.query(`SELECT role, user_id FROM "${getTableName('Users')}" WHERE user_id = $1`, [requesterId]);
+            reqUser = reqUserRes.rows[0];
+        }
 
         if (!reqUser) return res.status(401).json({ error: 'User not found' });
 
         let query = `
-            SELECT u.*, 
+            SELECT u.*,
             (SELECT COUNT(*) FROM "${getTableName('User_Agents')}" ua WHERE ua.user_id = u.user_id) as agent_count,
-            creator.email as creator_email
+    creator.email as creator_email
             FROM "${getTableName('Users')}" u
             LEFT JOIN "${getTableName('Users')}" creator ON u.created_by = creator.user_id
-        `;
+    `;
         let whereClauses = [];
         let params = [];
 
@@ -1037,17 +1168,17 @@ app.get('/api/users', async (req, res) => {
             whereClauses.push(`(u.created_by = $${params.length + 1} OR u.user_id = $${params.length + 1})`);
             params.push(requesterId);
         } else if (reqUser.role !== 'super_admin') {
-            whereClauses.push(`u.user_id = $${params.length + 1}`);
+            whereClauses.push(`u.user_id = $${params.length + 1} `);
             params.push(requesterId);
         }
 
         // Additional filters from query
         if (req.query.role) {
-            whereClauses.push(`u.role = $${params.length + 1}`);
+            whereClauses.push(`u.role = $${params.length + 1} `);
             params.push(req.query.role);
         }
         if (req.query.createdBy && req.query.createdBy !== 'all') {
-            whereClauses.push(`u.created_by = $${params.length + 1}`);
+            whereClauses.push(`u.created_by = $${params.length + 1} `);
             params.push(req.query.createdBy);
         }
 
@@ -1071,7 +1202,7 @@ app.get('/api/users', async (req, res) => {
         const totalResult = await pool.query(countQuery, params);
         const totalUsers = parseInt(totalResult.rows[0].count);
 
-        query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+        query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2} `;
         params.push(limit, offset);
 
         const result = await pool.query(query, params);
@@ -1158,7 +1289,7 @@ app.post('/api/users', async (req, res) => {
     }
 
     const { email, role, subscriptionTier, agents } = req.body;
-    const user_id = `user_${Date.now()}`;
+    const user_id = `user_${Date.now()} `;
     const password = 'Password123!';
 
     try {
@@ -1178,18 +1309,18 @@ app.post('/api/users', async (req, res) => {
         console.log(`👤 Creating user: ${email} (Role: ${role}, Created by: ${requesterId})`);
         // Create User
         await pool.query(`
-            INSERT INTO "${getTableName('Users')}" 
-            (user_id, email, password_hash, role, subscription_tier, is_active, must_change_password, created_by, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        `, [user_id, email, password, role || 'user', subscriptionTier || 'free', true, true, requesterId, new Date(), new Date()]);
+            INSERT INTO "${getTableName('Users')}"
+    (user_id, email, password_hash, role, subscription_tier, is_active, must_change_password, created_by, created_at, updated_at)
+VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `, [user_id, email, password, role || 'user', subscriptionTier || 'free', true, true, requesterId, new Date(), new Date()]);
 
         // Assign Agents
         if (agents && agents.length > 0) {
             for (const agentId of agents) {
                 await pool.query(`
-                    INSERT INTO "${getTableName('User_Agents')}" (user_id, agent_id)
-                    VALUES ($1, $2)
-                `, [user_id, agentId]);
+                    INSERT INTO "${getTableName('User_Agents')}"(user_id, agent_id)
+VALUES($1, $2)
+    `, [user_id, agentId]);
             }
         }
 
@@ -1203,13 +1334,13 @@ app.post('/api/users', async (req, res) => {
                     to: email,
                     subject: 'Welcome to FarmVaidya Dashboard',
                     html: `
-                        <h3>Welcome to FarmVaidya!</h3>
+    < h3 > Welcome to FarmVaidya!</h3 >
                         <p>Your account has been created successfully.</p>
                         <p><strong>Username:</strong> ${email}</p>
                         <p><strong>Password:</strong> ${password}</p>
                         <p>Please login and change your password immediately.</p>
                         <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/login">Login to Dashboard</a></p>
-                    `
+`
                 });
             } catch (emailErr) {
                 console.error('❌ Failed to send email:', emailErr.message);
@@ -1271,19 +1402,19 @@ app.put('/api/users/:userId', async (req, res) => {
         const updates = [];
         const params = [];
         if (role) {
-            updates.push(`role = $${params.length + 1}`);
+            updates.push(`role = $${params.length + 1} `);
             params.push(role);
         }
         if (subscriptionTier) {
-            updates.push(`subscription_tier = $${params.length + 1}`);
+            updates.push(`subscription_tier = $${params.length + 1} `);
             params.push(subscriptionTier);
         }
         if (isActive !== undefined) {
-            updates.push(`is_active = $${params.length + 1}`);
+            updates.push(`is_active = $${params.length + 1} `);
             params.push(isActive);
         }
 
-        updates.push(`updated_at = $${params.length + 1}`);
+        updates.push(`updated_at = $${params.length + 1} `);
         params.push(new Date());
 
         if (updates.length > 0) {
@@ -1291,7 +1422,7 @@ app.put('/api/users/:userId', async (req, res) => {
                 UPDATE "${getTableName('Users')}" 
                 SET ${updates.join(', ')} 
                 WHERE user_id = $${params.length + 1}
-            `, [...params, userId]);
+`, [...params, userId]);
         }
 
         res.json({ success: true, message: 'User updated successfully' });
@@ -1316,8 +1447,8 @@ app.post('/api/users/:userId/agents', async (req, res) => {
 
     try {
         await pool.query(`
-            INSERT INTO "${getTableName('User_Agents')}" (user_id, agent_id)
-            VALUES ($1, $2) ON CONFLICT DO NOTHING
+            INSERT INTO "${getTableName('User_Agents')}"(user_id, agent_id)
+VALUES($1, $2) ON CONFLICT DO NOTHING
         `, [userId, agentId]);
 
         const agents = await pool.query(`SELECT agent_id FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [userId]);
@@ -1347,8 +1478,8 @@ app.put('/api/users/:userId/agents', async (req, res) => {
         if (agents && agents.length > 0) {
             for (const agentId of agents) {
                 await pool.query(`
-                    INSERT INTO "${getTableName('User_Agents')}" (user_id, agent_id)
-                    VALUES ($1, $2)
+                    INSERT INTO "${getTableName('User_Agents')}"(user_id, agent_id)
+VALUES($1, $2)
                 `, [userId, agentId]);
             }
         }
@@ -1366,23 +1497,32 @@ app.delete('/api/users/:userId', async (req, res) => {
     if (!authHeader) return res.status(401).json({ error: 'No token' });
 
     const token = authHeader.split(' ')[1];
-    let requesterId = null;
+    let isMaster = false;
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         requesterId = decoded.userId;
+        isMaster = decoded.isMaster && requesterId === 'master_root_0';
     } catch (err) {
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
 
     try {
-        const [reqResult, targetResult] = await Promise.all([
-            pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [requesterId]),
-            pool.query(`SELECT email, created_by, role FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId])
-        ]);
+        let requester;
+        let target;
 
-        const requester = reqResult.rows[0];
-        const target = targetResult.rows[0];
+        if (isMaster) {
+            requester = { role: 'super_admin', user_id: 'master_root_0' };
+            const targetResult = await pool.query(`SELECT email, created_by, role FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]);
+            target = targetResult.rows[0];
+        } else {
+            const [reqResult, targetResult] = await Promise.all([
+                pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [requesterId]),
+                pool.query(`SELECT email, created_by, role FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId])
+            ]);
+            requester = reqResult.rows[0];
+            target = targetResult.rows[0];
+        }
 
         if (!requester) return res.status(401).json({ error: 'Requester not found' });
         if (!target) return res.status(404).json({ error: 'Target user not found' });
@@ -1428,11 +1568,11 @@ app.delete('/api/users/:userId', async (req, res) => {
                         to: child.email,
                         subject: childSubject,
                         html: `
-                            <h3>${childSubject}</h3>
+    < h3 > ${childSubject}</h3 >
                             <p>${childMessage}</p>
                             <p>If you believe this is an error, please contact support.</p>
-                        `
-                    }).catch(e => console.error(`Failed to send delete email to ${child.email}:`, e));
+`
+                    }).catch(e => console.error(`Failed to send delete email to ${child.email}: `, e));
                 });
             }
 
@@ -1451,10 +1591,10 @@ app.delete('/api/users/:userId', async (req, res) => {
                 to: target.email,
                 subject: subject,
                 html: `
-                    <h3>${subject}</h3>
-                    <p>${message}</p>
-                `
-            }).catch(e => console.error(`Failed to send delete email to ${target.email}:`, e));
+    < h3 > ${subject}</h3 >
+        <p>${message}</p>
+`
+            }).catch(e => console.error(`Failed to send delete email to ${target.email}: `, e));
         }
 
         // Delete the Target User
@@ -1520,11 +1660,11 @@ app.patch('/api/users/:userId/active', async (req, res) => {
                 to: user.email,
                 subject: subject,
                 html: `
-                    <h3>${subject}</h3>
+    < h3 > ${subject}</h3 >
                     <p>${message}</p>
                     <p>Action performed by: <strong>${actor}</strong></p>
                     <p>If you have any questions, please contact support.</p>
-                `
+`
             }).catch(e => console.error('Email error:', e));
         }
 
@@ -1578,7 +1718,7 @@ app.post('/api/users/:userId/reset-password', async (req, res) => {
             [token, expiry, userId]
         );
 
-        const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${token}`;
+        const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'} /reset-password/${token} `;
 
         if (process.env.SMTP_HOST) {
             try {
@@ -1587,13 +1727,13 @@ app.post('/api/users/:userId/reset-password', async (req, res) => {
                     to: user.email,
                     subject: 'Reset Your Password - Sevak Dashboard',
                     html: `
-                        <h3>Password Reset Request</h3>
+    < h3 > Password Reset Request</h3 >
                         <p>Hello,</p>
                         <p>The administrator has initiated a password reset for your account.</p>
                         <p>Please click the link below to set a new password:</p>
                         <p><a href="${resetLink}" style="display: inline-block; padding: 10px 20px; background-color: #008F4B; color: white; text-decoration: none; border-radius: 5px;">Reset Password</a></p>
                         <p>Best regards,<br>FarmVaidya Admin Team</p>
-                    `
+`
                 });
             } catch (e) {
                 console.error('Email error:', e);
@@ -1670,19 +1810,19 @@ app.get('/api/user/dashboard', async (req, res) => {
 
         if (user.role !== 'super_admin') {
             baseQuery += ` INNER JOIN "${getTableName('User_Agents')}" ua ON a.agent_id = ua.agent_id`;
-            whereClauses.push(`ua.user_id = $${queryParams.length + 1}`);
+            whereClauses.push(`ua.user_id = $${queryParams.length + 1} `);
             queryParams.push(userId);
         }
 
         if (search) {
             whereClauses.push(`(a.name ILIKE $${queryParams.length + 1} OR a.agent_id ILIKE $${queryParams.length + 1})`);
-            queryParams.push(`%${search}%`);
+            queryParams.push(`% ${search}% `);
         }
 
         const whereSql = whereClauses.length > 0 ? ` WHERE ` + whereClauses.join(' AND ') : '';
 
         // Get total count
-        const countRes = await pool.query(`SELECT COUNT(*) ${baseQuery} ${whereSql}`, queryParams);
+        const countRes = await pool.query(`SELECT COUNT(*) ${baseQuery} ${whereSql} `, queryParams);
         const totalAgents = parseInt(countRes.rows[0].count);
 
         // Map sorting field
@@ -1692,14 +1832,14 @@ app.get('/api/user/dashboard', async (req, res) => {
         else if (sortBy === 'name') orderBy = 'a.name';
 
         const dataSql = `
-            SELECT a.*, 
-            (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_session_count,
-            (SELECT SUM(duration_seconds) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_total_duration
+            SELECT a.*,
+    (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_session_count,
+        (SELECT SUM(duration_seconds) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id) as computed_total_duration
             ${baseQuery}
             ${whereSql}
             ORDER BY ${orderBy} ${sortOrder}
             LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
-        `;
+`;
 
         const result = await pool.query(dataSql, [...queryParams, limit, offset]);
         const agents = result.rows;
@@ -1734,7 +1874,7 @@ app.get('/api/user/dashboard', async (req, res) => {
             const statsRes = await pool.query(`
                 SELECT COUNT(*) as total_sessions, SUM(duration_seconds) as total_duration 
                 FROM "${getTableName('Sessions')}"
-            `);
+    `);
             totalSessionsAcrossAll = parseInt(statsRes.rows[0].total_sessions || 0);
             totalDurationAcrossAll = parseInt(statsRes.rows[0].total_duration || 0);
         } else {
@@ -1743,7 +1883,7 @@ app.get('/api/user/dashboard', async (req, res) => {
                 FROM "${getTableName('Sessions')}" s
                 INNER JOIN "${getTableName('User_Agents')}" ua ON s.agent_id = ua.agent_id
                 WHERE ua.user_id = $1
-            `, [userId]);
+    `, [userId]);
             totalSessionsAcrossAll = parseInt(statsRes.rows[0].total_sessions || 0);
             totalDurationAcrossAll = parseInt(statsRes.rows[0].total_duration || 0);
         }
@@ -1784,8 +1924,8 @@ app.get('/api/users/creators', async (req, res) => {
         const result = await pool.query(`
             SELECT DISTINCT u.user_id, u.email 
             FROM "${getTableName('Users')}" u
-            WHERE u.user_id IN (SELECT DISTINCT created_by FROM "${getTableName('Users')}")
-            OR u.role IN ('super_admin', 'admin')
+            WHERE u.user_id IN(SELECT DISTINCT created_by FROM "${getTableName('Users')}")
+            OR u.role IN('super_admin', 'admin')
         `);
         res.json({ creators: result.rows });
     } catch (err) {
@@ -1815,7 +1955,7 @@ app.patch('/api/user/conversations/:sessionId/review-status', async (req, res) =
         if (!validStatuses.includes(status)) {
             return res.status(400).json({
                 success: false,
-                error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+                error: `Invalid status.Must be one of: ${validStatuses.join(', ')} `
             });
         }
 
@@ -1884,28 +2024,28 @@ app.patch('/api/user/conversations/:sessionId/review-status', async (req, res) =
         // Update the review status in Conversations table
         const updateResult = await pool.query(`
             UPDATE "${getTableName('Conversations')}"
-            SET 
-                review_status = $1,
-                reviewed_by = $2,
-                reviewed_at = NOW()
+SET
+review_status = $1,
+    reviewed_by = $2,
+    reviewed_at = NOW()
             WHERE session_id = $3
-            RETURNING *
-        `, [status, userId, sessionId]);
+RETURNING *
+    `, [status, userId, sessionId]);
 
         if (updateResult.rows.length === 0) {
             // If no conversation exists yet, create one
             await pool.query(`
-                INSERT INTO "${getTableName('Conversations')}" 
-                (session_id, agent_id, turns, review_status, reviewed_by, reviewed_at)
+                INSERT INTO "${getTableName('Conversations')}"
+    (session_id, agent_id, turns, review_status, reviewed_by, reviewed_at)
                 SELECT session_id, agent_id, 0, $1, $2, NOW()
                 FROM "${getTableName('Sessions')}"
                 WHERE session_id = $3
-                ON CONFLICT (session_id) DO UPDATE
+                ON CONFLICT(session_id) DO UPDATE
                 SET review_status = $1, reviewed_by = $2, reviewed_at = NOW()
-            `, [status, userId, sessionId]);
+    `, [status, userId, sessionId]);
         }
 
-        console.log(`✅ Review status updated: ${sessionId} -> ${status} by ${userId}`);
+        console.log(`✅ Review status updated: ${sessionId} -> ${status} by ${userId} `);
 
         res.json({
             success: true,
@@ -1970,7 +2110,7 @@ app.post('/api/admin/users/:userId/agents/:agentId/mark-permission', async (req,
             await pool.query(`
                 ALTER TABLE "${getTableName('User_Agents')}" 
                 ADD COLUMN IF NOT EXISTS can_mark BOOLEAN DEFAULT FALSE
-            `);
+    `);
         } catch (alterErr) {
             console.log('can_mark column might already exist:', alterErr.message);
         }
@@ -1980,9 +2120,9 @@ app.post('/api/admin/users/:userId/agents/:agentId/mark-permission', async (req,
             UPDATE "${getTableName('User_Agents')}"
             SET can_mark = $1
             WHERE user_id = $2 AND agent_id = $3
-        `, [canMark, userId, agentId]);
+    `, [canMark, userId, agentId]);
 
-        console.log(`✅ Mark permission updated: User ${userId} on Agent ${agentId} -> can_mark: ${canMark}`);
+        console.log(`✅ Mark permission updated: User ${userId} on Agent ${agentId} -> can_mark: ${canMark} `);
 
         res.json({
             success: true,
@@ -1999,6 +2139,369 @@ app.post('/api/admin/users/:userId/agents/:agentId/mark-permission', async (req,
     }
 });
 
+// ==================== DATA ADMIN ENDPOINTS ====================
+// Special admin endpoints for managing and deleting data
+// IMPORTANT: Deleted items are excluded from future syncs
+
+// Delete Session
+app.delete('/api/data-admin/sessions/:sessionId', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+
+        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+            return res.status(403).json({ error: 'Super admin access required' });
+        }
+
+        const { sessionId } = req.params;
+
+        // Delete from Conversations first
+        await pool.query(`DELETE FROM "${getTableName('Conversations')}" WHERE session_id = $1`, [sessionId]);
+
+        // Delete from Sessions
+        await pool.query(`DELETE FROM "${getTableName('Sessions')}" WHERE session_id = $1`, [sessionId]);
+
+        // Add to exclusion list
+        await pool.query(`
+            INSERT INTO "${getTableName('Excluded_Items')}"(item_type, item_id, excluded_by, reason)
+VALUES($1, $2, $3, $4)
+            ON CONFLICT(item_type, item_id) DO NOTHING
+        `, ['session', sessionId, decoded.userId, 'Deleted by data admin']);
+
+        console.log(`🗑️ Session ${sessionId} deleted and excluded by ${decoded.userId} `);
+
+        res.json({
+            success: true,
+            message: 'Session deleted and excluded from future syncs'
+        });
+
+    } catch (err) {
+        console.error('Delete session error:', err.message);
+        res.status(500).json({ error: 'Failed to delete session' });
+    }
+});
+
+// Delete Agent
+app.delete('/api/data-admin/agents/:agentId', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+
+        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+            return res.status(403).json({ error: 'Super admin access required' });
+        }
+
+        const { agentId } = req.params;
+
+        // Get all sessions for this agent
+        const sessions = await pool.query(`SELECT session_id FROM "${getTableName('Sessions')}" WHERE agent_id = $1`, [agentId]);
+
+        // Delete all conversations for these sessions
+        for (const session of sessions.rows) {
+            await pool.query(`DELETE FROM "${getTableName('Conversations')}" WHERE session_id = $1`, [session.session_id]);
+
+            // Exclude each session
+            await pool.query(`
+                INSERT INTO "${getTableName('Excluded_Items')}"(item_type, item_id, excluded_by, reason)
+VALUES($1, $2, $3, $4)
+                ON CONFLICT(item_type, item_id) DO NOTHING
+            `, ['session', session.session_id, decoded.userId, 'Parent agent deleted']);
+        }
+
+        // Delete all sessions for this agent
+        await pool.query(`DELETE FROM "${getTableName('Sessions')}" WHERE agent_id = $1`, [agentId]);
+
+        // Delete agent
+        await pool.query(`DELETE FROM "${getTableName('Agents')}" WHERE agent_id = $1`, [agentId]);
+
+        // Exclude agent from future syncs
+        await pool.query(`
+            INSERT INTO "${getTableName('Excluded_Items')}"(item_type, item_id, excluded_by, reason)
+VALUES($1, $2, $3, $4)
+            ON CONFLICT(item_type, item_id) DO NOTHING
+        `, ['agent', agentId, decoded.userId, 'Deleted by data admin']);
+
+        console.log(`🗑️ Agent ${agentId} and all related data deleted and excluded by ${decoded.userId} `);
+
+        res.json({
+            success: true,
+            message: 'Agent and all related data deleted and excluded from future syncs',
+            sessionCount: sessions.rows.length
+        });
+
+    } catch (err) {
+        console.error('Delete agent error:', err.message);
+        res.status(500).json({ error: 'Failed to delete agent' });
+    }
+});
+
+// Update Summary
+app.patch('/api/data-admin/conversations/:sessionId/summary', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+
+        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+            return res.status(403).json({ error: 'Super admin access required' });
+        }
+
+        const { sessionId } = req.params;
+        const { summary } = req.body;
+
+        if (!summary) {
+            return res.status(400).json({ error: 'Summary is required' });
+        }
+
+        await pool.query(`
+            UPDATE "${getTableName('Conversations')}"
+            SET summary = $1
+            WHERE session_id = $2
+    `, [summary, sessionId]);
+
+        console.log(`✏️ Summary updated for session ${sessionId} by ${decoded.userId} `);
+
+        res.json({
+            success: true,
+            message: 'Summary updated successfully'
+        });
+
+    } catch (err) {
+        console.error('Update summary error:', err.message);
+        res.status(500).json({ error: 'Failed to update summary' });
+    }
+});
+
+// Get Excluded Items
+app.get('/api/data-admin/excluded', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+
+        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+            return res.status(403).json({ error: 'Super admin access required' });
+        }
+
+        const excludedItems = await pool.query(`
+SELECT * FROM "${getTableName('Excluded_Items')}"
+            ORDER BY excluded_at DESC
+        `);
+
+        res.json({
+            success: true,
+            excluded: excludedItems.rows
+        });
+
+    } catch (err) {
+        console.error('Get excluded items error:', err.message);
+        res.status(500).json({ error: 'Failed to fetch excluded items' });
+    }
+});
+
+// Restore Excluded Item
+app.delete('/api/data-admin/excluded/:itemType/:itemId', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+
+        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+            return res.status(403).json({ error: 'Super admin access required' });
+        }
+
+        const { itemType, itemId } = req.params;
+
+        await pool.query(`
+            DELETE FROM "${getTableName('Excluded_Items')}"
+            WHERE item_type = $1 AND item_id = $2
+    `, [itemType, itemId]);
+
+        console.log(`♻️ ${itemType} ${itemId} restored to sync list by ${decoded.userId} `);
+
+        res.json({
+            success: true,
+            message: `${itemType} ${itemId} will be re - synced on next cycle`
+        });
+
+    } catch (err) {
+        console.error('Restore excluded item error:', err.message);
+        res.status(500).json({ error: 'Failed to restore item' });
+    }
+});
+
+
+
+// ============ MASTER ADMIN FEATURES ============
+
+// Delete Agent (Soft or Permanent)
+app.delete('/api/agents/:agentId', async (req, res) => {
+    const { agentId } = req.params;
+    const { permanent } = req.query; // ?permanent=true
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    const token = authHeader.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
+
+        let userRole = 'user';
+        if (isMaster) {
+            userRole = 'super_admin';
+        } else {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+            if (userRes.rows[0]) userRole = userRes.rows[0].role;
+        }
+
+        if (userRole !== 'super_admin') {
+            return res.status(403).json({ error: 'Only Super Admins can delete agents.' });
+        }
+
+        // Master Admin Permanent Delete Logic
+        if (permanent === 'true') {
+            if (!isMaster) return res.status(403).json({ error: 'Only Master Admin can delete permanently.' });
+
+            // Get Name for Exclusion List
+            const agentRes = await pool.query(`SELECT name FROM "${getTableName('Agents')}" WHERE agent_id = $1`, [agentId]);
+            const agentName = agentRes.rows[0]?.name || agentId;
+
+            // Add to Excluded_Items (Blocklist)
+            await pool.query(`
+                INSERT INTO "${getTableName('Excluded_Items')}"(item_type, item_id, item_name, excluded_by, reason)
+VALUES('agent', $1, $2, $3, 'Permanent Delete by Master')
+                ON CONFLICT(item_type, item_id) DO UPDATE SET excluded_at = CURRENT_TIMESTAMP
+    `, [agentId, agentName, decoded.userId]);
+
+            // Hard Delete
+            await pool.query(`DELETE FROM "${getTableName('User_Agents')}" WHERE agent_id = $1`, [agentId]);
+            await pool.query(`DELETE FROM "${getTableName('Sessions')}" WHERE agent_id = $1`, [agentId]); // Cascading logic handles conversations if properly set, but manual delete is safer
+            await pool.query(`DELETE FROM "${getTableName('Conversations')}" WHERE agent_id = $1`, [agentId]);
+            await pool.query(`DELETE FROM "${getTableName('Agents')}" WHERE agent_id = $1`, [agentId]);
+
+            return res.json({ success: true, message: 'Agent permanently deleted and blocked from sync.' });
+        } else {
+            // Soft Delete (Hide)
+            await pool.query(`UPDATE "${getTableName('Agents')}" SET is_hidden = TRUE WHERE agent_id = $1`, [agentId]);
+            return res.json({ success: true, message: 'Agent hidden successfully.' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Restore Agent (Unhide/Unblock)
+app.post('/api/agents/:agentId/restore', async (req, res) => {
+    const { agentId } = req.params;
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    const token = authHeader.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
+
+        if (!isMaster) return res.status(403).json({ error: 'Only Master Admin can restore agents.' });
+
+        // Unhide
+        await pool.query(`UPDATE "${getTableName('Agents')}" SET is_hidden = FALSE WHERE agent_id = $1`, [agentId]);
+
+        // Unblock
+        await pool.query(`DELETE FROM "${getTableName('Excluded_Items')}" WHERE item_type = 'agent' AND item_id = $1`, [agentId]);
+
+        res.json({ success: true, message: 'Agent restored and unblocked.' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Delete Session (Soft or Permanent)
+app.delete('/api/sessions/:sessionId', async (req, res) => {
+    const { sessionId } = req.params;
+    const { permanent } = req.query; // ?permanent=true
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    const token = authHeader.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
+
+        let userRole = 'user';
+        if (isMaster) {
+            userRole = 'super_admin';
+        } else {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+            if (userRes.rows[0]) userRole = userRes.rows[0].role;
+        }
+
+        if (userRole !== 'super_admin') {
+            return res.status(403).json({ error: 'Only Super Admins can delete sessions.' });
+        }
+
+        if (permanent === 'true') {
+            if (!isMaster) return res.status(403).json({ error: 'Only Master Admin can delete permanently.' });
+
+            // Add to Excluded_Items
+            await pool.query(`
+                INSERT INTO "${getTableName('Excluded_Items')}"(item_type, item_id, item_name, excluded_by, reason)
+VALUES('session', $1, $1, $2, 'Permanent Delete by Master')
+                ON CONFLICT(item_type, item_id) DO UPDATE SET excluded_at = CURRENT_TIMESTAMP
+    `, [sessionId, decoded.userId]);
+
+            // Hard Delete
+            await pool.query(`DELETE FROM "${getTableName('Conversations')}" WHERE session_id = $1`, [sessionId]);
+            await pool.query(`DELETE FROM "${getTableName('Sessions')}" WHERE session_id = $1`, [sessionId]);
+
+            return res.json({ success: true, message: 'Session permanently deleted and blocked from sync.' });
+        } else {
+            // Soft Delete
+            await pool.query(`UPDATE "${getTableName('Sessions')}" SET is_hidden = TRUE WHERE session_id = $1`, [sessionId]);
+            return res.json({ success: true, message: 'Session hidden successfully.' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Restore Session
+app.post('/api/sessions/:sessionId/restore', async (req, res) => {
+    const { sessionId } = req.params;
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    const token = authHeader.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
+
+        if (!isMaster) return res.status(403).json({ error: 'Only Master Admin can restore sessions.' });
+
+        // Unhide
+        await pool.query(`UPDATE "${getTableName('Sessions')}" SET is_hidden = FALSE WHERE session_id = $1`, [sessionId]);
+
+        // Unblock
+        await pool.query(`DELETE FROM "${getTableName('Excluded_Items')}" WHERE item_type = 'session' AND item_id = $1`, [sessionId]);
+
+        res.json({ success: true, message: 'Session restored.' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 // Serve static files from the React app
 const distPath = path.join(__dirname, '../dist');
 if (fs.existsSync(distPath)) {
@@ -2011,9 +2514,63 @@ if (fs.existsSync(distPath)) {
     console.warn('⚠️ dist folder not found. Frontend will not be served statically.');
 }
 
+// System Status (Master Only)
+app.get('/api/system/status', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    const token = authHeader.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        // Strict Master Check
+        if (!decoded.isMaster || decoded.userId !== 'master_root_0') {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // DB Check
+        let dbStatus = 'Unknown';
+        let dbLatency = 0;
+        try {
+            const start = Date.now();
+            await pool.query('SELECT 1');
+            dbLatency = Date.now() - start;
+            dbStatus = 'Connected';
+        } catch (e) {
+            dbStatus = 'Error: ' + e.message;
+        }
+
+        const memUsage = process.memoryUsage();
+
+        res.json({
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString(),
+            memory: {
+                rss: Math.round(memUsage.rss / 1024 / 1024) + ' MB',
+                heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024) + ' MB',
+                heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024) + ' MB'
+            },
+            database: {
+                status: dbStatus,
+                latency: dbLatency + ' ms',
+                totalClients: pool.totalCount,
+                idleClients: pool.idleCount,
+                waitingClients: pool.waitingCount
+            },
+            system: {
+                platform: process.platform,
+                nodeVersion: process.version,
+                pid: process.pid,
+                env: process.env.NODE_ENV
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Start Server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
     await initDatabase();
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT} `);
 });

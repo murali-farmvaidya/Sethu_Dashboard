@@ -16,6 +16,7 @@ const authRoutes = require('./routes/auth.routes');
 const setupRoutes = require('./routes/setup.routes');
 const adminRoutes = require('./routes/admin.routes');
 const userRoutes = require('./routes/user.routes');
+const dataAdminRoutes = require('./routes/data.admin.routes');
 
 const app = express();
 const PORT = process.env.API_PORT || 8000;
@@ -43,6 +44,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api', authRoutes); // Fallback for /api/login, /api/me etc.
 app.use('/api/admin', adminRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/data-admin', dataAdminRoutes);
 
 // 404 handler
 app.use((req, res) => {

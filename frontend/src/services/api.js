@@ -37,6 +37,8 @@ api.interceptors.response.use(
 export const adminAPI = {
     getAllAgents: (params) => api.get('/api/agents', { params }),
     getStats: () => api.get('/api/stats'),
+    deleteAgent: (agentId, permanent) => api.delete(`/api/agents/${agentId}`, { params: { permanent } }),
+    restoreAgent: (agentId) => api.post(`/api/agents/${agentId}/restore`),
 
     // User Management
     getUsers: (params) => api.get('/api/users', { params }),

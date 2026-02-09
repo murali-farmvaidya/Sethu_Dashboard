@@ -118,6 +118,50 @@ h6 {
   color: #64748b;
   letter-spacing: 0.05em;
   font-family: 'Inter', sans-serif;
+  white-space: nowrap;
+  /* Prevent text wrapping */
+}
+
+/* Mobile responsive header */
+@media (max-width: 768px) {
+  .login-right-header {
+    position: relative;
+    /* Changed from absolute to flow with content */
+    top: auto;
+    left: auto;
+    right: auto;
+    width: 100%;
+    height: auto;
+    min-height: 80px;
+    padding: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    background: transparent;
+    /* Remove background on mobile to blend */
+    border-bottom: none;
+    margin-bottom: 2rem;
+  }
+
+  .login-header-logo {
+    height: 48px;
+    /* Keep logo readable */
+  }
+
+  .login-header-title {
+    font-size: 16px;
+    text-align: center;
+    width: 100%;
+    white-space: normal;
+    /* Allow wrapping on very small screens */
+  }
+
+  .login-right {
+    justify-content: flex-start;
+    /* Align to top */
+    padding-top: 2rem;
+    /* Add top padding since header is relative */
+  }
 }
 
 .login-form-container {

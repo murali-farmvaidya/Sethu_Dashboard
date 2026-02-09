@@ -10,6 +10,7 @@ import UserDashboard from './pages/UserDashboard';
 import ChangePassword from './pages/ChangePassword';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import SystemStatus from './pages/SystemStatus';
 import DeactivationModal from './components/DeactivationModal';
 import './App.css';
 
@@ -79,6 +80,11 @@ function AppRoutes() {
       <Route path="/admin/session/:sessionId" element={
         <PrivateRoute adminOnly={true}>
           <SessionDetails />
+        </PrivateRoute>
+      } />
+      <Route path="/master/status" element={
+        <PrivateRoute adminOnly={true}>
+          <SystemStatus />
         </PrivateRoute>
       } />
 

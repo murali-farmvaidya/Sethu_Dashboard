@@ -69,7 +69,11 @@ const Agent = sequelize.define('Agent', {
     active_deployment_ready: DataTypes.BOOLEAN,
     auto_scaling: DataTypes.JSONB,
     deployment: DataTypes.JSONB,
-    agent_profile: DataTypes.STRING
+    agent_profile: DataTypes.STRING,
+    is_hidden: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    }
 }, {
     tableName: getTableName('Agents'),
     timestamps: false,  // Disable auto-management
@@ -115,6 +119,10 @@ const Session = sequelize.define('Session', {
     last_synced: {
         type: DataTypes.DATE,
         defaultValue: DataTypes.NOW
+    },
+    is_hidden: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
     }
 }, {
     tableName: getTableName('Sessions'),
@@ -173,9 +181,25 @@ Conversation.belongsTo(Session, { foreignKey: 'session_id' });
 
 // ============ SYNC FUNCTIONS (PostgreSQL) ============
 
+
 async function syncAgents(client) {
     const agents = await client.getAllAgents();
+
+    // Get excluded agents
+    const excludedAgents = await sequelize.query(`
+        SELECT item_id FROM "${getTableName('Excluded_Items')}"
+        WHERE item_type = 'agent'
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    const excludedAgentIds = new Set(excludedAgents.map(e => e.item_id));
+
     for (const agent of agents) {
+        // Skip if agent is excluded
+        if (excludedAgentIds.has(agent.id)) {
+            logger.debug(`Skipping excluded agent: ${agent.name} (${agent.id})`);
+            continue;
+        }
+
         // Calculate session count based on what we have synced
         const sessionCount = await Session.count({ where: { agent_id: agent.id } });
 
@@ -196,11 +220,20 @@ async function syncAgents(client) {
             last_synced: new Date()
         });
     }
-    return agents;
+    return agents.filter(a => !excludedAgentIds.has(a.id));
 }
+
 
 async function syncSessions(client, agents) {
     logger.info(`🚀 Starting parallel session sync for ${agents.length} agents...`);
+
+    // Get excluded sessions once at the start
+    const excludedSessions = await sequelize.query(`
+        SELECT item_id FROM "${getTableName('Excluded_Items')}"
+        WHERE item_type = 'session'
+    `, { type: sequelize.QueryTypes.SELECT });
+
+    const excludedSessionIds = new Set(excludedSessions.map(e => e.item_id));
 
     // Process agents in parallel with a limit
     const processAgent = async (agent) => {
@@ -241,6 +274,12 @@ async function syncSessions(client, agents) {
                 const sessionsToProcess = isAscending ? [...sessions].reverse() : sessions;
 
                 for (const session of sessionsToProcess) {
+                    // Skip if session is excluded
+                    if (excludedSessionIds.has(session.sessionId)) {
+                        logger.debug(`Skipping excluded session: ${session.sessionId}`);
+                        continue;
+                    }
+
                     const startedAt = session.createdAt ? new Date(session.createdAt) : new Date();
 
                     if (startedAt < stopThreshold) {
@@ -459,7 +498,21 @@ async function main() {
         // Sync Models (Create Tables if not exist)
         logger.info('🏗️  Verifying database creation (Auto-Sync)...');
         await sequelize.sync({ alter: true }); // uses ALTER TABLE to match model
-        logger.info('✅ Database structure is ready.');
+
+        // Ensure Excluded_Items table exists for this environment
+        await sequelize.query(`
+            CREATE TABLE IF NOT EXISTS "${getTableName('Excluded_Items')}" (
+                id SERIAL PRIMARY KEY,
+                item_type TEXT NOT NULL,
+                item_id TEXT NOT NULL,
+                item_name TEXT,
+                excluded_by TEXT NOT NULL,
+                excluded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reason TEXT,
+                UNIQUE(item_type, item_id)
+            );
+        `);
+        logger.info('✅ Database structure and Excluded_Items table ready.');
 
         await runSyncCycle();
         // Use recursive setTimeout loop to prevent overlap, cleaner than interval
