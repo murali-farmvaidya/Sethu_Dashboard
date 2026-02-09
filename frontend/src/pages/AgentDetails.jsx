@@ -2,13 +2,13 @@ import { useEffect, useState, useCallback } from 'react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff } from 'lucide-react';
 import Header from '../components/Header';
 
 const ITEMS_PER_PAGE = 10;
 
 export default function AgentDetails() {
-    const { isAdmin } = useAuth();
+    const { user, isAdmin } = useAuth();
     const { agentId } = useParams();
     const [sessions, setSessions] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -30,6 +30,8 @@ export default function AgentDetails() {
     const [updatingStatus, setUpdatingStatus] = useState({});
     const navigate = useNavigate();
 
+    const [showHiddenSessions, setShowHiddenSessions] = useState(false);
+
     const fetchSessions = useCallback(async () => {
         try {
             const params = new URLSearchParams({
@@ -38,7 +40,8 @@ export default function AgentDetails() {
                 limit: ITEMS_PER_PAGE,
                 sortBy,
                 sortOrder,
-                search: searchTerm
+                search: searchTerm,
+                show_hidden: showHiddenSessions
             });
             const res = await api.get(`/api/sessions?${params}`);
 
@@ -74,7 +77,7 @@ export default function AgentDetails() {
         } finally {
             setLoading(false);
         }
-    }, [agentId, currentPage, sortBy, sortOrder, searchTerm]);
+    }, [agentId, currentPage, sortBy, sortOrder, searchTerm, showHiddenSessions]);
 
     // Fetch agent details for creation date
     const fetchAgentDetails = useCallback(async () => {
@@ -282,6 +285,55 @@ export default function AgentDetails() {
         }
     };
 
+    const handleDeleteAgent = async (permanent = false) => {
+        const msg = permanent
+            ? 'Are you sure you want to PERMANENTLY DELETE this agent? This cannot be undone.'
+            : 'Are you sure you want to HIDE this agent?';
+        if (!window.confirm(msg)) return;
+
+        try {
+            const { default: adminAPI } = await import('../services/api');
+            // Assuming adminAPI.deleteAgent handles the param format: (id, permanent)
+            // But api.js defines it as deleteAgent(id, permanent)
+            // Here we use the generic api client or import adminAPI
+
+            // To be safe, let's use the local api client directly as defined in imports
+            await api.delete(`/api/agents/${agentId}`, { params: { permanent } });
+
+            alert(permanent ? 'Agent permanently deleted' : 'Agent hidden');
+            navigate('/admin');
+        } catch (err) {
+            console.error('Failed to delete agent:', err);
+            alert('Failed: ' + (err.response?.data?.error || err.message));
+        }
+    };
+
+    const handleDeleteSession = async (sessionId, e, permanent = false) => {
+        if (e) e.stopPropagation();
+        const msg = permanent ? 'Permanently delete this session?' : 'Hide this session?';
+        if (!window.confirm(msg)) return;
+
+        try {
+            await api.delete(`/api/sessions/${sessionId}`, { params: { permanent } });
+            // Remove locally
+            setSessions(prev => prev.filter(s => s.session_id !== sessionId));
+            setTotalSessions(prev => prev - 1);
+        } catch (err) {
+            console.error('Failed to delete session:', err);
+            alert('Failed: ' + (err.response?.data?.error || err.message));
+        }
+    };
+
+    const handleRestoreSession = async (sessionId, e) => {
+        if (e) e.stopPropagation();
+        try {
+            await api.post(`/api/sessions/${sessionId}/restore`);
+            fetchSessions(); // Refresh
+        } catch (err) {
+            alert('Restore failed');
+        }
+    };
+
     if (loading && sessions.length === 0) return <div className="loading">Loading sessions...</div>;
 
     // Find earliest date in current view as a proxy for "Created At" if not available
@@ -340,13 +392,40 @@ export default function AgentDetails() {
                         <button className="btn-logout" onClick={() => navigate('/')}>
                             <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back to Dashboard
                         </button>
+                        {user?.id === 'master_root_0' && (
+                            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '5px' }}>
+                                <button
+                                    className="btn-logout"
+                                    style={{ flex: 1, borderColor: '#cbd5e1', color: '#64748b', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
+                                    onClick={() => handleDeleteAgent(false)}
+                                >
+                                    <Trash2 size={16} style={{ marginRight: '4px' }} /> Hide
+                                </button>
+                                <button
+                                    className="btn-logout"
+                                    style={{ flex: 1, borderColor: '#ef4444', color: '#ef4444', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
+                                    onClick={() => handleDeleteAgent(true)}
+                                >
+                                    <ShieldAlert size={16} style={{ marginRight: '4px' }} /> Destroy
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </aside>
 
                 {/* Main Content - Sessions List */}
                 <main className="dashboard-main" style={{ padding: '0', background: '#f5f7fa', height: '100vh', overflowY: 'auto' }}>
-                    <div className="dashboard-header-title" style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa', marginBottom: '1rem' }}>
+                    <div className="dashboard-header-title" style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h1>Agent Sessions</h1>
+                        {user?.id === 'master_root_0' && (
+                            <button
+                                onClick={() => setShowHiddenSessions(!showHiddenSessions)}
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: showHiddenSessions ? '#e2e8f0' : 'white', cursor: 'pointer', fontSize: '0.9rem' }}
+                            >
+                                {showHiddenSessions ? <EyeOff size={16} /> : <Eye size={16} />}
+                                {showHiddenSessions ? 'Hide Deleted' : 'Show Deleted'}
+                            </button>
+                        )}
                     </div>
 
                     <div className="page-container" style={{ padding: '0 2rem 2rem 2rem', maxWidth: '100%' }}>
@@ -451,7 +530,7 @@ export default function AgentDetails() {
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Time</th>
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', minWidth: '300px' }}>Summary</th>
                                             <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Review Status</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Download</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -469,7 +548,10 @@ export default function AgentDetails() {
                                                         background: getRowBackgroundColor(session.review_status)
                                                     }}
                                                 >
-                                                    <td className="font-mono clickable-cell session-id-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem', color: 'var(--primary)', cursor: 'pointer' }}>
+                                                    <td className="font-mono clickable-cell session-id-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                                        {session.is_hidden && (
+                                                            <EyeOff size={14} style={{ color: '#ef4444', marginRight: '8px' }} />
+                                                        )}
                                                         {session.session_id}
                                                     </td>
                                                     <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
@@ -544,17 +626,49 @@ export default function AgentDetails() {
                                                         </select>
                                                     </td>
                                                     <td className="download-cell" style={{ padding: '1rem' }}>
-                                                        <div className="dropdown-container">
+                                                        <div className="dropdown-container" style={{ display: 'flex', gap: '0.5rem' }}>
                                                             <button
                                                                 className="btn-download"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     setDownloadDropdown(downloadDropdown === session.session_id ? null : session.session_id);
                                                                 }}
+                                                                title="Download"
                                                             >
                                                                 <Download size={16} />
                                                                 <ChevronDown size={14} />
                                                             </button>
+                                                            {user?.id === 'master_root_0' && (
+                                                                <>
+                                                                    {session.is_hidden ? (
+                                                                        <button
+                                                                            className="btn-download"
+                                                                            style={{ background: 'white', border: '1px solid #3b82f6', color: '#3b82f6' }}
+                                                                            onClick={(e) => handleRestoreSession(session.session_id, e)}
+                                                                            title="Restore Session"
+                                                                        >
+                                                                            <RotateCcw size={16} />
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button
+                                                                            className="btn-download"
+                                                                            style={{ background: 'white', border: '1px solid #cbd5e1', color: '#64748b' }}
+                                                                            onClick={(e) => handleDeleteSession(session.session_id, e, false)}
+                                                                            title="Hide Session"
+                                                                        >
+                                                                            <Trash2 size={16} />
+                                                                        </button>
+                                                                    )}
+                                                                    <button
+                                                                        className="btn-download"
+                                                                        style={{ background: 'white', border: '1px solid #ef4444', color: '#ef4444' }}
+                                                                        onClick={(e) => handleDeleteSession(session.session_id, e, true)}
+                                                                        title="Permanently Delete"
+                                                                    >
+                                                                        <ShieldAlert size={16} />
+                                                                    </button>
+                                                                </>
+                                                            )}
                                                             {downloadDropdown === session.session_id && (
                                                                 <div className="dropdown-menu">
                                                                     <button onClick={() => downloadSession(session, 'json')}>JSON</button>
