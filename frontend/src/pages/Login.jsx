@@ -66,7 +66,7 @@ export default function Login() {
                 className="search-input"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin@farmvaidya.ai"
+                placeholder="Email"
                 required
               />
             </div>
