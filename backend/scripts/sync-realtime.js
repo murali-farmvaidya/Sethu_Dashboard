@@ -407,7 +407,28 @@ async function syncConversations(client, agents) {
             for (const [sessionId, logs] of sessionLogs.entries()) {
                 try {
                     const turns = normalizeLogs(logs);
-                    if (!turns || turns.length === 0) continue;
+
+                    // ============ ENHANCED ERROR DETECTION ============
+                    if (!turns || turns.length === 0) {
+                        // Log this for debugging - especially for specific agents
+                        logger.warn(`⚠️ No turns extracted for session ${sessionId} (${agent.name}). Log count: ${logs.length}`);
+
+                        // Sample the first few logs to debug parsing issues
+                        if (logs.length > 0 && agent.name.toLowerCase().includes('ngo')) {
+                            const sample = logs.slice(0, 3).map(l => {
+                                const msg = typeof l === 'string' ? l : (l.log || l.message || '');
+                                return msg.substring(0, 200); // First 200 chars
+                            });
+                            logger.warn(`📋 Sample logs for ${agent.name}: ${JSON.stringify(sample)}`);
+                        }
+                        continue;
+                    }
+
+                    // Check if turns have assistant messages
+                    const hasAssistantMessages = turns.some(t => t.assistant_message);
+                    if (!hasAssistantMessages && turns.length > 0) {
+                        logger.warn(`⚠️ Session ${sessionId} (${agent.name}) has ${turns.length} turns but NO assistant messages!`);
+                    }
 
                     const time = turns[turns.length - 1].timestamp || new Date();
                     const existing = await Conversation.findByPk(sessionId);
@@ -419,6 +440,7 @@ async function syncConversations(client, agents) {
                         const existingLastTurn = existing.turns[existing.turns.length - 1];
                         if (lastTurn.assistant_message && (!existingLastTurn || !existingLastTurn.assistant_message)) {
                             isContentMissing = true;
+                            logger.info(`🔄 Updating session ${sessionId} - assistant message was missing, now present`);
                         }
                     }
 
@@ -452,7 +474,8 @@ async function syncConversations(client, agents) {
                     await Session.update({ conversation_count: turns.length }, { where: { session_id: sessionId } });
                     agentSyncedCount++;
                 } catch (e) {
-                    logger.error(`Error processing session ${sessionId}: ${e.message}`);
+                    logger.error(`❌ Error processing session ${sessionId} (${agent.name}): ${e.message}`);
+                    logger.error(`Stack: ${e.stack}`);
                 }
             }
         } catch (err) {
