@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { adminAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
-import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X } from 'lucide-react';
+import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Header from '../components/Header';
 
@@ -227,7 +227,7 @@ export default function Dashboard() {
                 {/* Main Content */}
                 <main className="dashboard-main">
                     <header className="dashboard-header-title">
-                        <h1>Sevak Admin Dashboard</h1>
+                        {/* Title moved to top header */}
                     </header>
 
                     {/* Search Bar */}
@@ -300,7 +300,7 @@ export default function Dashboard() {
                                             }}
                                             title="Hide Agent"
                                         >
-                                            <Trash2 size={14} />
+                                            <EyeOff size={14} />
                                         </div>
                                         <div
                                             onClick={(e) => handleDeleteAgent(agent.agent_id, e, true)}
@@ -310,7 +310,7 @@ export default function Dashboard() {
                                             }}
                                             title="Permanently Delete & Block"
                                         >
-                                            <ShieldAlert size={14} />
+                                            <Trash2 size={14} />
                                         </div>
                                     </div>
                                 )}

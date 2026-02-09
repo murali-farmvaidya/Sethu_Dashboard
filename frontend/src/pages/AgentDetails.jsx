@@ -373,7 +373,7 @@ export default function AgentDetails() {
                         <div className="info-row">
                             <span className="info-label">Total Duration</span>
                             {/* Note: Server-provided stats */}
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                                 <span className="info-value">{Math.floor(totalDuration / 60)} min</span>
                                 <span style={{ fontSize: '0.7rem', color: '#666', marginTop: '2px' }}>
                                     Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -399,14 +399,14 @@ export default function AgentDetails() {
                                     style={{ flex: 1, borderColor: '#cbd5e1', color: '#64748b', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
                                     onClick={() => handleDeleteAgent(false)}
                                 >
-                                    <Trash2 size={16} style={{ marginRight: '4px' }} /> Hide
+                                    <EyeOff size={16} style={{ marginRight: '4px' }} /> Hide
                                 </button>
                                 <button
                                     className="btn-logout"
                                     style={{ flex: 1, borderColor: '#ef4444', color: '#ef4444', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
                                     onClick={() => handleDeleteAgent(true)}
                                 >
-                                    <ShieldAlert size={16} style={{ marginRight: '4px' }} /> Destroy
+                                    <Trash2 size={16} style={{ marginRight: '4px' }} /> Destroy
                                 </button>
                             </div>
                         )}

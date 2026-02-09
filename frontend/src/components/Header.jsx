@@ -31,7 +31,13 @@ export default function Header() {
         {/* Brand Tier: 70px height */}
         <div
           className="brand-tier"
-          style={{ opacity: 1 - scrollProgress }}
+          style={{
+            opacity: 1 - scrollProgress,
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}
         >
           <div className="brand-left">
             <img
@@ -40,13 +46,31 @@ export default function Header() {
               className="brand-logo"
               onClick={() => navigate('/')}
             />
+            {/* Left side text removed/minimized as title is now centered */}
             <div className="brand-text">
-              <span className="brand-title">FarmVaidya</span>
-              <span className="brand-subtitle">Sevak Dashboard</span>
+              <span className="brand-title"></span>
             </div>
           </div>
 
-          <div className="brand-right">
+          {/* Centered Main Title */}
+          <div className="brand-center" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', textAlign: 'center', width: 'max-content' }}>
+            <h1 style={{ margin: 0, fontSize: '1.8rem', color: '#008F4B', fontWeight: 'bold', letterSpacing: '-0.5px' }}>
+              {(() => {
+                if (user?.id === 'master_root_0' || user?.isMaster) return 'Sevak Master Dashboard';
+                if (user?.role === 'super_admin') return 'Sevak Super Admin Dashboard';
+                if (user?.role === 'admin') return 'Sevak Admin Dashboard';
+                if (user?.role === 'user') return 'Sevak User Dashboard';
+                return 'Sevak Dashboard';
+              })()}
+            </h1>
+          </div>
+
+          <div className="brand-right" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            {user?.email && (
+              <span style={{ fontSize: '0.9rem', color: '#64748b', marginRight: '8px', fontWeight: '500' }}>
+                {user.email}
+              </span>
+            )}
             <button onClick={() => navigate('/change-password')} className="action-icon-btn" title="Change Password">
               <Lock size={18} />
             </button>
