@@ -432,15 +432,54 @@ async function syncConversations(client, agents) {
 
                     const time = turns[turns.length - 1].timestamp || new Date();
                     const existing = await Conversation.findByPk(sessionId);
+
+                    // ============ DATA PROTECTION LAYER (Fixes Flickering) ============
+                    // 1. Safety Check: If we fetched FEWER turns than we already have, something is wrong.
+                    // Don't overwrite good data with truncated data.
+                    if (existing && existing.turns && turns.length < existing.turns.length) {
+                        logger.warn(`📉 Turn count shrinkage detected for ${sessionId} (${existing.turns.length} -> ${turns.length}). Skipping update to protect data.`);
+                        continue;
+                    }
+
+                    // 2. Intelligent Merge: If new data has "holes" (missing text) that we already have, fill them.
+                    if (existing && existing.turns && turns.length > 0) {
+                        let preservedCount = 0;
+                        turns.forEach((newTurn, index) => {
+                            if (index < existing.turns.length) {
+                                const oldTurn = existing.turns[index];
+
+                                // Protect Assistant Message (The main issue)
+                                if (!newTurn.assistant_message && oldTurn.assistant_message) {
+                                    newTurn.assistant_message = oldTurn.assistant_message;
+                                    preservedCount++;
+                                }
+                                // Protect User Message
+                                if (!newTurn.user_message && oldTurn.user_message) {
+                                    newTurn.user_message = oldTurn.user_message;
+                                }
+                            }
+                        });
+
+                        if (preservedCount > 0) {
+                            if (agent.name.toLowerCase().includes('ngo')) {
+                                logger.info(`🛡️ Protected ${preservedCount} assistant messages for ${sessionId} (NGO Agent)`);
+                            } else {
+                                logger.debug(`🛡️ Protected ${preservedCount} messages for ${sessionId}`);
+                            }
+                        }
+                    }
+                    // ============ END PROTECTION ============
+
                     const parentSession = await Session.findByPk(sessionId);
 
                     let isContentMissing = false;
                     if (existing && existing.turns.length === turns.length) {
                         const lastTurn = turns[turns.length - 1];
                         const existingLastTurn = existing.turns[existing.turns.length - 1];
+                        // Logic updated: Only flag missing if NEW has it and OLD doesn't
                         if (lastTurn.assistant_message && (!existingLastTurn || !existingLastTurn.assistant_message)) {
                             isContentMissing = true;
-                            logger.info(`🔄 Updating session ${sessionId} - assistant message was missing, now present`);
+                            logger.info(`🔄 Updating session ${sessionId} - new content found`);
                         }
                     }
 
