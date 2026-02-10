@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { adminAPI } from '../services/api';
 import { useNavigate } from 'react-router-dom';
-import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff } from 'lucide-react';
+import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff, CheckSquare, Square, MinusSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Header from '../components/Header';
 
@@ -24,6 +24,89 @@ export default function Dashboard() {
     const [hiddenAgents, setHiddenAgents] = useState([]);
     const [excludedAgents, setExcludedAgents] = useState([]);
 
+    // Multi-select for agents grid
+    const [selectedAgents, setSelectedAgents] = useState(new Set());
+
+    // Multi-select for recycle bin
+    const [selectedBinItems, setSelectedBinItems] = useState(new Set());
+
+    const toggleAgentSelect = (agentId, e) => {
+        e.stopPropagation();
+        setSelectedAgents(prev => {
+            const next = new Set(prev);
+            if (next.has(agentId)) next.delete(agentId); else next.add(agentId);
+            return next;
+        });
+    };
+
+    const toggleSelectAllAgents = () => {
+        const pageIds = agents.map(a => a.agent_id || a._id);
+        const allSelected = pageIds.every(id => selectedAgents.has(id));
+        setSelectedAgents(prev => {
+            const next = new Set(prev);
+            if (allSelected) pageIds.forEach(id => next.delete(id)); else pageIds.forEach(id => next.add(id));
+            return next;
+        });
+    };
+
+    const clearAgentSelection = () => setSelectedAgents(new Set());
+
+    const handleBulkAgentAction = async (permanent) => {
+        const count = selectedAgents.size;
+        const action = permanent ? 'PERMANENTLY DELETE' : 'HIDE';
+        if (!window.confirm(`Are you sure you want to ${action} ${count} agent(s)?`)) return;
+        let s = 0;
+        for (const id of selectedAgents) {
+            try { await adminAPI.deleteAgent(id, permanent); s++; } catch (e) { console.error(e); }
+        }
+        alert(`${s} of ${count} agents ${permanent ? 'permanently deleted' : 'hidden'}.`);
+        clearAgentSelection();
+        fetchAgents();
+    };
+
+    const toggleBinSelect = (key) => {
+        setSelectedBinItems(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key); else next.add(key);
+            return next;
+        });
+    };
+
+    const toggleBinSelectAll = (items) => {
+        const keys = items.map(i => i._binKey);
+        const allSelected = keys.every(k => selectedBinItems.has(k));
+        setSelectedBinItems(prev => {
+            const next = new Set(prev);
+            if (allSelected) keys.forEach(k => next.delete(k)); else keys.forEach(k => next.add(k));
+            return next;
+        });
+    };
+
+    const handleBulkBinAction = async (action) => {
+        const count = selectedBinItems.size;
+        let label = action === 'restore' ? 'RESTORE' : action === 'resync' ? 'RE-SYNC' : 'PERMANENTLY DELETE';
+        if (!window.confirm(`Are you sure you want to ${label} ${count} item(s)?`)) return;
+        let s = 0;
+        for (const key of selectedBinItems) {
+            try {
+                const [type, id] = key.split('::');
+                const { default: api } = await import('../services/api');
+                if (action === 'restore') {
+                    await adminAPI.restoreAgent(id);
+                } else if (action === 'resync') {
+                    await api.delete(`/api/data-admin/excluded/agent/${id}`);
+                } else {
+                    await api.delete(`/api/data-admin/excluded-permanent/agent/${id}`);
+                }
+                s++;
+            } catch (e) { console.error(e); }
+        }
+        alert(`${s} of ${count} items processed.`);
+        setSelectedBinItems(new Set());
+        fetchRecycleBin();
+        fetchAgents();
+    };
+
     const fetchRecycleBin = async () => {
         try {
             const hiddenRes = await adminAPI.getAllAgents({ show_hidden: 'true', limit: 100 });
@@ -38,7 +121,10 @@ export default function Dashboard() {
     };
 
     useEffect(() => {
-        if (recycleBinOpen) fetchRecycleBin();
+        if (recycleBinOpen) {
+            fetchRecycleBin();
+            setSelectedBinItems(new Set());
+        }
     }, [recycleBinOpen]);
 
     const handleRestore = async (id, type) => {
@@ -52,8 +138,27 @@ export default function Dashboard() {
             fetchRecycleBin();
             fetchAgents();
         } catch (e) {
-            alert('Restore failed');
+            alert('Restore failed: ' + (e.response?.data?.error || e.message));
         }
+    };
+
+    const handlePermanentDeleteFromBin = async (id, itemType) => {
+        if (!window.confirm(`Are you sure you want to PERMANENTLY remove this ${itemType} from the recycle bin? It will NOT be re-synced ever.`)) return;
+        try {
+            const { default: api } = await import('../services/api');
+            await api.delete(`/api/data-admin/excluded-permanent/${itemType}/${id}`);
+            fetchRecycleBin();
+        } catch (e) {
+            alert('Permanent delete failed: ' + (e.response?.data?.error || e.message));
+        }
+    };
+
+    const getDaysRemaining = (excludedAt) => {
+        const excluded = new Date(excludedAt);
+        const expiry = new Date(excluded.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const now = new Date();
+        const daysLeft = Math.ceil((expiry - now) / (24 * 60 * 60 * 1000));
+        return Math.max(0, daysLeft);
     };
 
     const fetchAgents = useCallback(async () => {
@@ -246,7 +351,14 @@ export default function Dashboard() {
                     <div className="section-header">
                         <h2 className="section-title">Agents Overview</h2>
                         <div className="section-controls">
-                            <span className="section-count">{totalAgents} agents</span>
+                            <span className="section-count">
+                                {totalAgents} agents
+                                {selectedAgents.size > 0 && (
+                                    <span style={{ marginLeft: '10px', background: '#008F4B', color: 'white', padding: '2px 10px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '600' }}>
+                                        {selectedAgents.size} selected
+                                    </span>
+                                )}
+                            </span>
                             <button
                                 className="btn-sort"
                                 onClick={() => handleSort('recent')}
@@ -286,35 +398,80 @@ export default function Dashboard() {
                         </div>
                     </div>
 
+                    {/* Bulk Action Bar for Agents */}
+                    {selectedAgents.size > 0 && user?.id === 'master_root_0' && (
+                        <div style={{
+                            background: 'linear-gradient(135deg, #008F4B, #00753e)', color: 'white',
+                            padding: '12px 20px', borderRadius: '10px', marginBottom: '12px',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            boxShadow: '0 4px 20px rgba(0,143,75,0.3)'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <CheckSquare size={18} />
+                                <span style={{ fontWeight: '600' }}>{selectedAgents.size} agent{selectedAgents.size > 1 ? 's' : ''} selected</span>
+                                <button onClick={clearAgentSelection} style={{
+                                    background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+                                    padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem'
+                                }}>Clear</button>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button onClick={() => handleBulkAgentAction(false)} style={{
+                                    padding: '8px 16px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)',
+                                    color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                    fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}>
+                                    <EyeOff size={14} /> Hide All
+                                </button>
+                                <button onClick={() => handleBulkAgentAction(true)} style={{
+                                    padding: '8px 16px', background: '#ef4444', border: 'none',
+                                    color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                    fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}>
+                                    <Trash2 size={14} /> Delete All
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Agents Grid */}
                     <div className="agents-grid">
                         {Array.isArray(agents) && agents.map(agent => (
-                            <div key={agent.agent_id || agent._id} className="card agent-card" onClick={() => navigate(`/admin/agent/${agent.agent_id}`)} style={{ position: 'relative' }}>
+                            <div key={agent.agent_id || agent._id} className="card agent-card" onClick={() => navigate(`/admin/agent/${agent.agent_id}`)} style={{ position: 'relative', cursor: 'pointer', border: selectedAgents.has(agent.agent_id) ? '2px solid #008F4B' : undefined }}>
                                 {user?.id === 'master_root_0' && (
-                                    <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', gap: '5px', zIndex: 10 }}>
-                                        <div
+                                    <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', gap: '8px', zIndex: 10 }} onClick={(e) => e.stopPropagation()}>
+                                        <button
+                                            onClick={(e) => toggleAgentSelect(agent.agent_id, e)}
+                                            style={{
+                                                width: '24px', height: '24px', borderRadius: '4px', background: 'transparent', color: '#008F4B', border: 'none', cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                            }}
+                                            title="Select Agent"
+                                        >
+                                            {selectedAgents.has(agent.agent_id) ? <CheckSquare size={18} /> : <Square size={18} color="#94a3b8" />}
+                                        </button>
+                                        <button
                                             onClick={(e) => handleDeleteAgent(agent.agent_id, e, false)}
                                             style={{
-                                                padding: '6px', borderRadius: '50%', background: '#f1f5f9', color: '#64748b', cursor: 'pointer',
+                                                width: '24px', height: '24px', borderRadius: '50%', background: '#f1f5f9', color: '#64748b', border: 'none', cursor: 'pointer',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center'
                                             }}
                                             title="Hide Agent"
                                         >
                                             <EyeOff size={14} />
-                                        </div>
-                                        <div
+                                        </button>
+                                        <button
                                             onClick={(e) => handleDeleteAgent(agent.agent_id, e, true)}
                                             style={{
-                                                padding: '6px', borderRadius: '50%', background: '#fee2e2', color: '#ef4444', cursor: 'pointer',
+                                                width: '24px', height: '24px', borderRadius: '50%', background: '#fee2e2', color: '#ef4444', border: 'none', cursor: 'pointer',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center'
                                             }}
                                             title="Permanently Delete & Block"
                                         >
                                             <Trash2 size={14} />
-                                        </div>
+                                        </button>
                                     </div>
                                 )}
-                                <h3 className="agent-name" style={{ paddingRight: user?.id === 'master_root_0' ? '30px' : '0' }}>{agent.name}</h3>
+                                <h3 className="agent-name" style={{ paddingRight: user?.id === 'master_root_0' ? '90px' : '0' }}>{agent.name}</h3>
                                 <div style={{ display: 'flex', gap: '10px', marginTop: '5px' }}>
                                     <span className="badge">{agent.session_count || 0} Sessions</span>
                                     <span className="badge" style={{ background: '#FFC805', color: '#000' }}>
@@ -357,46 +514,128 @@ export default function Dashboard() {
                 </main>
             </div>
             {/* Recycle Bin Modal */}
-            {recycleBinOpen && (
-                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    <div style={{ background: 'white', padding: '20px', borderRadius: '12px', width: '600px', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <RotateCcw size={20} /> Recycle Bin
-                            </h2>
-                            <button onClick={() => setRecycleBinOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
-                        </div>
+            {recycleBinOpen && (() => {
+                const hiddenItems = hiddenAgents.map(a => ({ ...a, _binKey: `hidden::${a.agent_id}`, _binType: 'hidden' }));
+                const excludedItems = excludedAgents.map(e => ({ ...e, _binKey: `excluded::${e.item_id}`, _binType: 'excluded' }));
+                return (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                        <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '700px', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <RotateCcw size={20} /> Recycle Bin
+                                </h2>
+                                <button onClick={() => setRecycleBinOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+                            </div>
 
-                        <div style={{ marginBottom: '20px' }}>
-                            <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '10px', color: '#64748b' }}>Hidden Agents (Soft Deleted)</h3>
-                            {hiddenAgents.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#94a3b8' }}>No hidden agents found.</p> : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {hiddenAgents.map(a => (
-                                        <div key={a.agent_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: '#f8fafc', borderRadius: '6px' }}>
-                                            <span>{a.name} <small style={{ color: '#94a3b8' }}>({a.agent_id})</small></span>
-                                            <button onClick={() => handleRestore(a.agent_id, 'hidden')} style={{ padding: '4px 12px', background: '#fff', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>Restore</button>
-                                        </div>
-                                    ))}
+                            {/* Bulk action bar for recycle bin */}
+                            {selectedBinItems.size > 0 && (
+                                <div style={{
+                                    background: '#008F4B', color: 'white', padding: '10px 16px', borderRadius: '8px', marginBottom: '16px',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                                }}>
+                                    <span style={{ fontWeight: '600', fontSize: '0.9rem' }}>{selectedBinItems.size} item{selectedBinItems.size > 1 ? 's' : ''} selected</span>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        {[...selectedBinItems].some(k => k.startsWith('hidden::')) && (
+                                            <button onClick={() => handleBulkBinAction('restore')} style={{ padding: '5px 12px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', color: 'white', borderRadius: '5px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                <RotateCcw size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Restore
+                                            </button>
+                                        )}
+                                        {[...selectedBinItems].some(k => k.startsWith('excluded::')) && (
+                                            <>
+                                                <button onClick={() => handleBulkBinAction('resync')} style={{ padding: '5px 12px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', color: 'white', borderRadius: '5px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                    Re-Sync
+                                                </button>
+                                                <button onClick={() => handleBulkBinAction('delete')} style={{ padding: '5px 12px', background: '#ef4444', border: 'none', color: 'white', borderRadius: '5px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                    <Trash2 size={12} style={{ marginRight: '3px', verticalAlign: 'middle' }} /> Delete Forever
+                                                </button>
+                                            </>
+                                        )}
+                                        <button onClick={() => setSelectedBinItems(new Set())} style={{ padding: '5px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', borderRadius: '5px', cursor: 'pointer', fontSize: '0.8rem' }}>Clear</button>
+                                    </div>
                                 </div>
                             )}
-                        </div>
 
-                        <div>
-                            <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '10px', color: '#ef4444' }}>Permanently Blocked (Sync Excluded)</h3>
-                            {excludedAgents.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#94a3b8' }}>No blocked agents.</p> : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    {excludedAgents.map(e => (
-                                        <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: '#fef2f2', borderRadius: '6px' }}>
-                                            <span>{e.item_name || e.item_id} <small style={{ color: '#94a3b8' }}>({e.item_id})</small></span>
-                                            <button onClick={() => handleRestore(e.item_id, 'excluded')} style={{ padding: '4px 12px', background: '#fff', border: '1px solid #fecaca', color: '#ef4444', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}>Unblock & Re-Sync</button>
-                                        </div>
-                                    ))}
+                            {/* Hidden Agents Section */}
+                            <div style={{ marginBottom: '24px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <EyeOff size={16} /> Hidden Agents (Soft Deleted)
+                                    </h3>
+                                    {hiddenItems.length > 0 && (
+                                        <button onClick={() => toggleBinSelectAll(hiddenItems)} style={{ background: 'none', border: '1px solid #e2e8f0', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', color: '#64748b' }}>
+                                            {hiddenItems.every(i => selectedBinItems.has(i._binKey)) ? 'Deselect All' : 'Select All'}
+                                        </button>
+                                    )}
                                 </div>
-                            )}
+                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '10px' }}>These agents are just hidden. All sessions and data are intact. Restore to make them visible again.</p>
+                                {hiddenItems.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#94a3b8', fontStyle: 'italic' }}>No hidden agents.</p> : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {hiddenItems.map(a => (
+                                            <div key={a._binKey} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: '#f8fafc', borderRadius: '8px', border: selectedBinItems.has(a._binKey) ? '2px solid #008F4B' : '1px solid #e2e8f0', gap: '10px' }}>
+                                                <button onClick={() => toggleBinSelect(a._binKey)} style={{ background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                                                    {selectedBinItems.has(a._binKey) ? <CheckSquare size={18} color="#008F4B" /> : <Square size={18} color="#94a3b8" />}
+                                                </button>
+                                                <div style={{ flex: 1 }}>
+                                                    <span style={{ fontWeight: '500' }}>{a.name}</span>
+                                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>ID: {a.agent_id}</div>
+                                                </div>
+                                                <button onClick={() => handleRestore(a.agent_id, 'hidden')} style={{ padding: '6px 14px', background: '#e6f4ed', border: '1px solid #008F4B', color: '#008F4B', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: '500' }}>
+                                                    <RotateCcw size={13} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Restore
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Permanently Blocked Section */}
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <ShieldAlert size={16} /> Permanently Blocked (Sync Excluded)
+                                    </h3>
+                                    {excludedItems.length > 0 && (
+                                        <button onClick={() => toggleBinSelectAll(excludedItems)} style={{ background: 'none', border: '1px solid #e2e8f0', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', color: '#64748b' }}>
+                                            {excludedItems.every(i => selectedBinItems.has(i._binKey)) ? 'Deselect All' : 'Select All'}
+                                        </button>
+                                    )}
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '10px' }}>These items are deleted and blocked from re-syncing. They auto-expire after 30 days. You can re-sync or permanently remove them.</p>
+                                {excludedItems.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#94a3b8', fontStyle: 'italic' }}>No blocked agents.</p> : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {excludedItems.map(e => {
+                                            const daysLeft = getDaysRemaining(e.excluded_at);
+                                            return (
+                                                <div key={e._binKey} style={{ display: 'flex', alignItems: 'center', padding: '12px', background: '#fef2f2', borderRadius: '8px', border: selectedBinItems.has(e._binKey) ? '2px solid #008F4B' : '1px solid #fecaca', gap: '10px' }}>
+                                                    <button onClick={() => toggleBinSelect(e._binKey)} style={{ background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                                                        {selectedBinItems.has(e._binKey) ? <CheckSquare size={18} color="#008F4B" /> : <Square size={18} color="#94a3b8" />}
+                                                    </button>
+                                                    <div style={{ flex: 1 }}>
+                                                        <span style={{ fontWeight: '500' }}>{e.item_name || e.item_id}</span>
+                                                        {e.item_name && <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>ID: {e.item_id}</div>}
+                                                        <div style={{ fontSize: '0.7rem', color: daysLeft <= 7 ? '#ef4444' : '#f59e0b', marginTop: '4px', fontWeight: '500' }}>
+                                                            ⏱ Auto-expires in {daysLeft} day{daysLeft !== 1 ? 's' : ''}
+                                                            {daysLeft <= 7 && ' ⚠️'}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
+                                                        <button onClick={() => handleRestore(e.item_id, 'excluded')} style={{ padding: '6px 10px', background: '#fff', border: '1px solid #008F4B', color: '#008F4B', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                            Re-Sync
+                                                        </button>
+                                                        <button onClick={() => handlePermanentDeleteFromBin(e.item_id, e.item_type)} style={{ padding: '6px 10px', background: '#ef4444', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                            <Trash2 size={12} style={{ marginRight: '3px', verticalAlign: 'middle' }} /> Delete Forever
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </React.Fragment>
     );
 }

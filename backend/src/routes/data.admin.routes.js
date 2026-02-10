@@ -8,9 +8,9 @@ const router = express.Router();
 const { authenticate, authorizeRoles } = require('../middleware/auth');
 const dataAdminController = require('../controllers/data.admin.controller');
 
-// All data admin routes require authentication and super_admin role
+// All data admin routes require authentication and admin role
 router.use(authenticate);
-router.use(authorizeRoles('super_admin'));
+router.use(authorizeRoles('admin'));
 
 // Delete operations
 router.delete('/sessions/:sessionId', dataAdminController.deleteSession);

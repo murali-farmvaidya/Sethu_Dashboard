@@ -2150,10 +2150,13 @@ app.delete('/api/data-admin/sessions/:sessionId', async (req, res) => {
 
     try {
         const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
 
-        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
-            return res.status(403).json({ error: 'Super admin access required' });
+        if (!isMaster) {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+            if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+                return res.status(403).json({ error: 'Super admin access required' });
+            }
         }
 
         const { sessionId } = req.params;
@@ -2191,10 +2194,13 @@ app.delete('/api/data-admin/agents/:agentId', async (req, res) => {
 
     try {
         const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
 
-        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
-            return res.status(403).json({ error: 'Super admin access required' });
+        if (!isMaster) {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+            if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+                return res.status(403).json({ error: 'Super admin access required' });
+            }
         }
 
         const { agentId } = req.params;
@@ -2248,10 +2254,13 @@ app.patch('/api/data-admin/conversations/:sessionId/summary', async (req, res) =
 
     try {
         const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
 
-        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
-            return res.status(403).json({ error: 'Super admin access required' });
+        if (!isMaster) {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+            if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+                return res.status(403).json({ error: 'Super admin access required' });
+            }
         }
 
         const { sessionId } = req.params;
@@ -2287,10 +2296,13 @@ app.get('/api/data-admin/excluded', async (req, res) => {
 
     try {
         const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
 
-        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
-            return res.status(403).json({ error: 'Super admin access required' });
+        if (!isMaster) {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+            if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+                return res.status(403).json({ error: 'Super admin access required' });
+            }
         }
 
         const excludedItems = await pool.query(`
@@ -2316,24 +2328,39 @@ app.delete('/api/data-admin/excluded/:itemType/:itemId', async (req, res) => {
 
     try {
         const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
-        const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
 
-        if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
-            return res.status(403).json({ error: 'Super admin access required' });
+        if (!isMaster) {
+            const userRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [decoded.userId]);
+            if (!userRes.rows[0] || userRes.rows[0].role !== 'super_admin') {
+                return res.status(403).json({ error: 'Super admin access required' });
+            }
         }
 
         const { itemType, itemId } = req.params;
 
+        // Remove the exclusion entry
         await pool.query(`
             DELETE FROM "${getTableName('Excluded_Items')}"
             WHERE item_type = $1 AND item_id = $2
     `, [itemType, itemId]);
 
+        // If restoring an agent, also remove all session exclusions that were created
+        // when the agent was deleted (reason = 'Parent agent deleted')
+        if (itemType === 'agent') {
+            const removedSessions = await pool.query(`
+                DELETE FROM "${getTableName('Excluded_Items')}"
+                WHERE item_type = 'session' AND reason = 'Parent agent deleted'
+                RETURNING item_id
+            `);
+            console.log(`♻️ Also unblocked ${removedSessions.rowCount} child sessions for agent ${itemId}`);
+        }
+
         console.log(`♻️ ${itemType} ${itemId} restored to sync list by ${decoded.userId} `);
 
         res.json({
             success: true,
-            message: `${itemType} ${itemId} will be re - synced on next cycle`
+            message: `${itemType} ${itemId} will be re-synced on next cycle`
         });
 
     } catch (err) {
@@ -2342,7 +2369,67 @@ app.delete('/api/data-admin/excluded/:itemType/:itemId', async (req, res) => {
     }
 });
 
+// ============ AUTO-CLEANUP: Remove excluded items older than 30 days ============
+const RETENTION_DAYS = 30;
 
+const cleanupExpiredExclusions = async () => {
+    try {
+        const result = await pool.query(`
+            DELETE FROM "${getTableName('Excluded_Items')}"
+            WHERE excluded_at < NOW() - INTERVAL '${RETENTION_DAYS} days'
+            RETURNING id, item_type, item_id, item_name
+        `);
+        if (result.rowCount > 0) {
+            console.log(`🧹 Auto-cleanup: Removed ${result.rowCount} expired exclusions (older than ${RETENTION_DAYS} days):`);
+            result.rows.forEach(row => console.log(`   - ${row.item_type}: ${row.item_name || row.item_id}`));
+        }
+    } catch (err) {
+        console.error('Auto-cleanup error:', err.message);
+    }
+};
+
+// Run cleanup on server start and every 6 hours
+cleanupExpiredExclusions();
+setInterval(cleanupExpiredExclusions, 6 * 60 * 60 * 1000);
+
+// Permanently delete an excluded item from the recycle bin (no recovery)
+app.delete('/api/data-admin/excluded-permanent/:itemType/:itemId', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    try {
+        const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET);
+        const isMaster = decoded.isMaster && decoded.userId === 'master_root_0';
+
+        if (!isMaster) {
+            return res.status(403).json({ error: 'Only Master Admin can permanently delete from recycle bin.' });
+        }
+
+        const { itemType, itemId } = req.params;
+
+        // Remove from exclusion list permanently
+        const result = await pool.query(`
+            DELETE FROM "${getTableName('Excluded_Items')}"
+            WHERE item_type = $1 AND item_id = $2
+            RETURNING id, item_name
+        `, [itemType, itemId]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Item not found in recycle bin.' });
+        }
+
+        console.log(`🗑️ Permanently removed ${itemType} "${result.rows[0].item_name || itemId}" from recycle bin by ${decoded.userId}`);
+
+        res.json({
+            success: true,
+            message: `${itemType} permanently removed from recycle bin. It will NOT be re-synced.`
+        });
+
+    } catch (err) {
+        console.error('Permanent delete from recycle bin error:', err.message);
+        res.status(500).json({ error: 'Failed to permanently delete item' });
+    }
+});
 
 // ============ MASTER ADMIN FEATURES ============
 
@@ -2418,10 +2505,18 @@ app.post('/api/agents/:agentId/restore', async (req, res) => {
         // Unhide
         await pool.query(`UPDATE "${getTableName('Agents')}" SET is_hidden = FALSE WHERE agent_id = $1`, [agentId]);
 
-        // Unblock
+        // Unblock agent
         await pool.query(`DELETE FROM "${getTableName('Excluded_Items')}" WHERE item_type = 'agent' AND item_id = $1`, [agentId]);
 
-        res.json({ success: true, message: 'Agent restored and unblocked.' });
+        // Also unblock all child sessions that were excluded when the agent was deleted
+        const removedSessions = await pool.query(`
+            DELETE FROM "${getTableName('Excluded_Items')}"
+            WHERE item_type = 'session' AND reason = 'Parent agent deleted'
+            RETURNING item_id
+        `);
+        console.log(`♻️ Agent ${agentId} restored. Also unblocked ${removedSessions.rowCount} child sessions.`);
+
+        res.json({ success: true, message: `Agent restored and unblocked. ${removedSessions.rowCount} child sessions also unblocked.` });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

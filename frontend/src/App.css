@@ -586,7 +586,8 @@ h6 {
 }
 
 .download-cell {
-  width: 80px;
+  width: 200px;
+  min-width: 200px;
 }
 
 /* ==================== MOBILE SESSION CARDS ==================== */

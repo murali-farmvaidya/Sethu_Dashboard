@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import api from '../api/client';
+import api, { adminAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare } from 'lucide-react';
 import Header from '../components/Header';
 
 const ITEMS_PER_PAGE = 10;
@@ -28,9 +28,66 @@ export default function AgentDetails() {
     const [generatingSummary, setGeneratingSummary] = useState({});
     const [reviewFilter, setReviewFilter] = useState('all');
     const [updatingStatus, setUpdatingStatus] = useState({});
+
+    // Recycle Bin State
+    const [recycleBinOpen, setRecycleBinOpen] = useState(false);
+    const [excludedSessions, setExcludedSessions] = useState([]);
+    const [hiddenSessionsList, setHiddenSessionsList] = useState([]);
+    const [selectedBinItems, setSelectedBinItems] = useState(new Set());
+
     const navigate = useNavigate();
 
     const [showHiddenSessions, setShowHiddenSessions] = useState(false);
+
+    // Multi-select state (persists across pagination)
+    const [selectedSessions, setSelectedSessions] = useState(new Set());
+
+    const toggleSelect = (sessionId) => {
+        setSelectedSessions(prev => {
+            const next = new Set(prev);
+            if (next.has(sessionId)) {
+                next.delete(sessionId);
+            } else {
+                next.add(sessionId);
+            }
+            return next;
+        });
+    };
+
+    const toggleSelectAll = () => {
+        const currentPageIds = sessions.map(s => s.session_id);
+        const allSelected = currentPageIds.every(id => selectedSessions.has(id));
+        setSelectedSessions(prev => {
+            const next = new Set(prev);
+            if (allSelected) {
+                currentPageIds.forEach(id => next.delete(id));
+            } else {
+                currentPageIds.forEach(id => next.add(id));
+            }
+            return next;
+        });
+    };
+
+    const clearSelection = () => setSelectedSessions(new Set());
+
+    const handleBulkAction = async (permanent) => {
+        const count = selectedSessions.size;
+        const action = permanent ? 'PERMANENTLY DELETE' : 'HIDE';
+        if (!window.confirm(`Are you sure you want to ${action} ${count} session(s)?`)) return;
+
+        let successCount = 0;
+        for (const sessionId of selectedSessions) {
+            try {
+                await adminAPI.deleteSession(sessionId, permanent);
+                successCount++;
+            } catch (err) {
+                console.error(`Failed to ${action} session ${sessionId}:`, err);
+            }
+        }
+        alert(`${successCount} of ${count} sessions ${permanent ? 'permanently deleted' : 'hidden'}.`);
+        clearSelection();
+        fetchSessions();
+    };
 
     const fetchSessions = useCallback(async () => {
         try {
@@ -292,13 +349,7 @@ export default function AgentDetails() {
         if (!window.confirm(msg)) return;
 
         try {
-            const { default: adminAPI } = await import('../services/api');
-            // Assuming adminAPI.deleteAgent handles the param format: (id, permanent)
-            // But api.js defines it as deleteAgent(id, permanent)
-            // Here we use the generic api client or import adminAPI
-
-            // To be safe, let's use the local api client directly as defined in imports
-            await api.delete(`/api/agents/${agentId}`, { params: { permanent } });
+            await adminAPI.deleteAgent(agentId, permanent);
 
             alert(permanent ? 'Agent permanently deleted' : 'Agent hidden');
             navigate('/admin');
@@ -314,7 +365,7 @@ export default function AgentDetails() {
         if (!window.confirm(msg)) return;
 
         try {
-            await api.delete(`/api/sessions/${sessionId}`, { params: { permanent } });
+            await adminAPI.deleteSession(sessionId, permanent);
             // Remove locally
             setSessions(prev => prev.filter(s => s.session_id !== sessionId));
             setTotalSessions(prev => prev - 1);
@@ -334,10 +385,106 @@ export default function AgentDetails() {
         }
     };
 
+    const fetchRecycleBin = async () => {
+        try {
+            const res = await api.get('/api/data-admin/excluded');
+            setExcludedSessions(res.data.excluded.filter(e => e.item_type === 'session'));
+
+            // Also fetch hidden sessions for this agent
+            const params = new URLSearchParams({ agent_id: agentId, page: 1, limit: 100, show_hidden: true });
+            const hiddenRes = await api.get(`/api/sessions?${params}`);
+            if (hiddenRes.data?.data) {
+                setHiddenSessionsList(hiddenRes.data.data.filter(s => s.is_hidden));
+            }
+        } catch (e) {
+            console.error("Fetch Recycle Bin Error:", e);
+        }
+    };
+
+    useEffect(() => {
+        if (recycleBinOpen) {
+            fetchRecycleBin();
+            setSelectedBinItems(new Set());
+        }
+    }, [recycleBinOpen]);
+
+    const getDaysRemaining = (excludedAt) => {
+        const excluded = new Date(excludedAt);
+        const expiry = new Date(excluded.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const now = new Date();
+        const daysLeft = Math.ceil((expiry - now) / (24 * 60 * 60 * 1000));
+        return Math.max(0, daysLeft);
+    };
+
+    const handleRestoreExcluded = async (id) => {
+        try {
+            await api.delete(`/api/data-admin/excluded/session/${id}`);
+            alert('Session restored from blocklist. It will be re-fetched in the next sync cycle.');
+            fetchRecycleBin();
+        } catch (e) {
+            console.error("Restore failed:", e);
+            alert('Restore failed: ' + (e.response?.data?.error || e.message));
+        }
+    };
+
+    const handlePermanentDeleteFromBin = async (id, itemType) => {
+        if (!window.confirm('Are you sure you want to PERMANENTLY remove this session? It will NOT be re-synced ever.')) return;
+        try {
+            await api.delete(`/api/data-admin/excluded-permanent/${itemType}/${id}`);
+            fetchRecycleBin();
+        } catch (e) {
+            alert('Permanent delete failed: ' + (e.response?.data?.error || e.message));
+        }
+    };
+
+    const toggleBinSelect = (key) => {
+        setSelectedBinItems(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key); else next.add(key);
+            return next;
+        });
+    };
+
+    const toggleBinSelectAll = (items) => {
+        const keys = items.map(i => i._binKey);
+        const allSelected = keys.every(k => selectedBinItems.has(k));
+        setSelectedBinItems(prev => {
+            const next = new Set(prev);
+            if (allSelected) keys.forEach(k => next.delete(k)); else keys.forEach(k => next.add(k));
+            return next;
+        });
+    };
+
+    const handleBulkBinAction = async (action) => {
+        const count = selectedBinItems.size;
+        let label = action === 'restore' ? 'RESTORE' : action === 'resync' ? 'RE-SYNC' : 'PERMANENTLY DELETE';
+        if (!window.confirm(`Are you sure you want to ${label} ${count} item(s)?`)) return;
+
+        let successCount = 0;
+        for (const key of selectedBinItems) {
+            try {
+                const [type, id] = key.split('::');
+                if (action === 'restore') {
+                    await api.post(`/api/sessions/${id}/restore`);
+                } else if (action === 'resync') {
+                    await api.delete(`/api/data-admin/excluded/session/${id}`);
+                } else {
+                    await api.delete(`/api/data-admin/excluded-permanent/session/${id}`);
+                }
+                successCount++;
+            } catch (err) {
+                console.error(`Bulk action failed for ${key}:`, err);
+            }
+        }
+        alert(`${successCount} of ${count} items processed.`);
+        setSelectedBinItems(new Set());
+        fetchRecycleBin();
+        fetchSessions();
+    };
+
     if (loading && sessions.length === 0) return <div className="loading">Loading sessions...</div>;
 
     // Find earliest date in current view as a proxy for "Created At" if not available
-    // Ideally this comes from Agent metadata
     const earliestSession = sessions.length > 0 ? sessions[sessions.length - 1].started_at : new Date().toISOString();
 
 
@@ -393,20 +540,29 @@ export default function AgentDetails() {
                             <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back to Dashboard
                         </button>
                         {user?.id === 'master_root_0' && (
-                            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '5px' }}>
+                            <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                                <div style={{ display: 'flex', gap: '5px' }}>
+                                    <button
+                                        className="btn-logout"
+                                        style={{ flex: 1, borderColor: '#cbd5e1', color: '#64748b', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
+                                        onClick={() => handleDeleteAgent(false)}
+                                    >
+                                        <EyeOff size={16} style={{ marginRight: '4px' }} /> Hide
+                                    </button>
+                                    <button
+                                        className="btn-logout"
+                                        style={{ flex: 1, borderColor: '#ef4444', color: '#ef4444', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
+                                        onClick={() => handleDeleteAgent(true)}
+                                    >
+                                        <Trash2 size={16} style={{ marginRight: '4px' }} /> Destroy
+                                    </button>
+                                </div>
                                 <button
                                     className="btn-logout"
-                                    style={{ flex: 1, borderColor: '#cbd5e1', color: '#64748b', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
-                                    onClick={() => handleDeleteAgent(false)}
+                                    onClick={() => setRecycleBinOpen(true)}
+                                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: '#64748b' }}
                                 >
-                                    <EyeOff size={16} style={{ marginRight: '4px' }} /> Hide
-                                </button>
-                                <button
-                                    className="btn-logout"
-                                    style={{ flex: 1, borderColor: '#ef4444', color: '#ef4444', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
-                                    onClick={() => handleDeleteAgent(true)}
-                                >
-                                    <Trash2 size={16} style={{ marginRight: '4px' }} /> Destroy
+                                    <RotateCcw size={16} /> Recycle Bin
                                 </button>
                             </div>
                         )}
@@ -508,7 +664,14 @@ export default function AgentDetails() {
 
                         {/* Sorting Controls */}
                         <div className="section-header" style={{ marginTop: '1.5rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span className="section-count" style={{ color: '#666' }}>Showing {sessions.length} of {totalSessions} sessions</span>
+                            <span className="section-count" style={{ color: '#666' }}>
+                                Showing {sessions.length} of {totalSessions} sessions
+                                {selectedSessions.size > 0 && (
+                                    <span style={{ marginLeft: '10px', background: '#1e293b', color: 'white', padding: '2px 10px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '600' }}>
+                                        {selectedSessions.size} selected
+                                    </span>
+                                )}
+                            </span>
                             <div className="section-controls">
                                 <button className="btn-sort" onClick={() => handleSort('started_at')}>
                                     <ArrowUpDown size={16} /> Date {sortBy === 'started_at' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
@@ -519,18 +682,71 @@ export default function AgentDetails() {
                             </div>
                         </div>
 
+                        {/* Bulk Action Bar */}
+                        {selectedSessions.size > 0 && user?.id === 'master_root_0' && (
+                            <div style={{
+                                position: 'sticky', top: '73px', zIndex: 50,
+                                background: 'linear-gradient(135deg, #008F4B, #00753e)', color: 'white',
+                                padding: '12px 20px', borderRadius: '10px', marginBottom: '12px',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                boxShadow: '0 4px 20px rgba(0,143,75,0.3)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <CheckSquare size={18} />
+                                    <span style={{ fontWeight: '600' }}>{selectedSessions.size} session{selectedSessions.size > 1 ? 's' : ''} selected</span>
+                                    <button onClick={clearSelection} style={{
+                                        background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+                                        padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem'
+                                    }}>Clear</button>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                        onClick={() => handleBulkAction(false)}
+                                        style={{
+                                            padding: '8px 16px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)',
+                                            color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                            fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <EyeOff size={14} /> Hide All
+                                    </button>
+                                    <button
+                                        onClick={() => handleBulkAction(true)}
+                                        style={{
+                                            padding: '8px 16px', background: '#ef4444', border: 'none',
+                                            color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                            fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
+                                        }}
+                                    >
+                                        <Trash2 size={14} /> Delete All
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         {/* Desktop Table View */}
                         <div className="card desktop-only" style={{ background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
                             <div className="table-container">
-                                <table className="session-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <table className="session-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                                     <thead style={{ background: '#f8f9fa' }}>
                                         <tr>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Session ID</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Date</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Time</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', minWidth: '300px' }}>Summary</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444' }}>Review Status</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', minWidth: '160px' }}>Actions</th>
+                                            {user?.id === 'master_root_0' && (
+                                                <th style={{ padding: '1rem 0.5rem', textAlign: 'center', fontWeight: '600', color: '#444', width: '45px' }}>
+                                                    <button onClick={toggleSelectAll} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                                                        {sessions.length > 0 && sessions.every(s => selectedSessions.has(s.session_id))
+                                                            ? <CheckSquare size={18} color="#008F4B" />
+                                                            : sessions.some(s => selectedSessions.has(s.session_id))
+                                                                ? <MinusSquare size={18} color="#f59e0b" />
+                                                                : <Square size={18} color="#94a3b8" />}
+                                                    </button>
+                                                </th>
+                                            )}
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '22%' }}>Session ID</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '10%' }}>Date</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '14%' }}>Time</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '25%' }}>Summary</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '12%' }}>Review Status</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: user?.id === 'master_root_0' ? '17%' : '12%' }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -548,11 +764,25 @@ export default function AgentDetails() {
                                                         background: getRowBackgroundColor(session.review_status)
                                                     }}
                                                 >
-                                                    <td className="font-mono clickable-cell session-id-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                                                        {session.is_hidden && (
-                                                            <EyeOff size={14} style={{ color: '#ef4444', marginRight: '8px' }} />
-                                                        )}
-                                                        {session.session_id}
+                                                    {user?.id === 'master_root_0' && (
+                                                        <td style={{ padding: '0.5rem', textAlign: 'center', width: '45px' }}>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); toggleSelect(session.session_id); }}
+                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}
+                                                            >
+                                                                {selectedSessions.has(session.session_id)
+                                                                    ? <CheckSquare size={18} color="#008F4B" />
+                                                                    : <Square size={18} color="#cbd5e1" />}
+                                                            </button>
+                                                        </td>
+                                                    )}
+                                                    <td className="font-mono clickable-cell session-id-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem', color: 'var(--primary)', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                            {session.is_hidden && (
+                                                                <EyeOff size={14} style={{ color: '#ef4444', marginRight: '6px', flexShrink: 0 }} />
+                                                            )}
+                                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.session_id}</span>
+                                                        </div>
                                                     </td>
                                                     <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
                                                         {formatDate(session.started_at)}
@@ -625,8 +855,8 @@ export default function AgentDetails() {
                                                             <option value="completed">Completed</option>
                                                         </select>
                                                     </td>
-                                                    <td className="download-cell" style={{ padding: '1rem', whiteSpace: 'nowrap' }}>
-                                                        <div className="dropdown-container" style={{ display: 'flex', gap: '0.5rem' }}>
+                                                    <td className="download-cell" style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>
+                                                        <div className="dropdown-container" style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
                                                             <button
                                                                 className="btn-download"
                                                                 onClick={(e) => {
@@ -680,7 +910,7 @@ export default function AgentDetails() {
                                                     </td>
                                                 </tr>
                                             ))}
-                                        {sessions.length === 0 && !loading && <tr><td colSpan="6" className="text-center" style={{ padding: '2rem' }}>No sessions found.</td></tr>}
+                                        {sessions.length === 0 && !loading && <tr><td colSpan={user?.id === 'master_root_0' ? 7 : 6} className="text-center" style={{ padding: '2rem' }}>No sessions found.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -727,6 +957,129 @@ export default function AgentDetails() {
                     </div>
                 </main>
             </div>
+
+            {/* Recycle Bin Modal */}
+            {recycleBinOpen && (() => {
+                const hiddenItems = hiddenSessionsList.map(s => ({ ...s, _binKey: `hidden::${s.session_id}`, _binType: 'hidden' }));
+                const excludedItems = excludedSessions.map(e => ({ ...e, _binKey: `excluded::${e.item_id}`, _binType: 'excluded' }));
+                const allBinItems = [...hiddenItems, ...excludedItems];
+                return (
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                        <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '700px', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <RotateCcw size={20} /> Recycle Bin (Sessions)
+                                </h2>
+                                <button onClick={() => setRecycleBinOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+                            </div>
+
+                            {/* Bulk action bar for recycle bin */}
+                            {selectedBinItems.size > 0 && (
+                                <div style={{
+                                    background: '#008F4B', color: 'white', padding: '10px 16px', borderRadius: '8px', marginBottom: '16px',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                                }}>
+                                    <span style={{ fontWeight: '600', fontSize: '0.9rem' }}>{selectedBinItems.size} item{selectedBinItems.size > 1 ? 's' : ''} selected</span>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        {[...selectedBinItems].some(k => k.startsWith('hidden::')) && (
+                                            <button onClick={() => handleBulkBinAction('restore')} style={{ padding: '5px 12px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', color: 'white', borderRadius: '5px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                <RotateCcw size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Restore
+                                            </button>
+                                        )}
+                                        {[...selectedBinItems].some(k => k.startsWith('excluded::')) && (
+                                            <>
+                                                <button onClick={() => handleBulkBinAction('resync')} style={{ padding: '5px 12px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)', color: 'white', borderRadius: '5px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                    Re-Sync
+                                                </button>
+                                                <button onClick={() => handleBulkBinAction('delete')} style={{ padding: '5px 12px', background: '#ef4444', border: 'none', color: 'white', borderRadius: '5px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                    <Trash2 size={12} style={{ marginRight: '3px', verticalAlign: 'middle' }} /> Delete Forever
+                                                </button>
+                                            </>
+                                        )}
+                                        <button onClick={() => setSelectedBinItems(new Set())} style={{ padding: '5px 10px', background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', borderRadius: '5px', cursor: 'pointer', fontSize: '0.8rem' }}>Clear</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Hidden Sessions Section */}
+                            <div style={{ marginBottom: '24px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <EyeOff size={16} /> Hidden Sessions (Soft Deleted)
+                                    </h3>
+                                    {hiddenItems.length > 0 && (
+                                        <button onClick={() => toggleBinSelectAll(hiddenItems)} style={{ background: 'none', border: '1px solid #e2e8f0', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', color: '#64748b' }}>
+                                            {hiddenItems.every(i => selectedBinItems.has(i._binKey)) ? 'Deselect All' : 'Select All'}
+                                        </button>
+                                    )}
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '10px' }}>These sessions are hidden. All data is intact. Restore to make them visible again.</p>
+                                {hiddenItems.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#94a3b8', fontStyle: 'italic' }}>No hidden sessions.</p> : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {hiddenItems.map(s => (
+                                            <div key={s._binKey} style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', background: '#f8fafc', borderRadius: '8px', border: selectedBinItems.has(s._binKey) ? '2px solid #008F4B' : '1px solid #e2e8f0', gap: '10px' }}>
+                                                <button onClick={() => toggleBinSelect(s._binKey)} style={{ background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                                                    {selectedBinItems.has(s._binKey) ? <CheckSquare size={18} color="#008F4B" /> : <Square size={18} color="#94a3b8" />}
+                                                </button>
+                                                <div style={{ flex: 1, overflow: 'hidden' }}>
+                                                    <span style={{ fontWeight: '500', fontSize: '0.85rem', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.session_id}</span>
+                                                </div>
+                                                <button onClick={() => handleRestoreSession(s.session_id)} style={{ padding: '5px 12px', background: '#e6f4ed', border: '1px solid #008F4B', color: '#008F4B', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500', whiteSpace: 'nowrap' }}>
+                                                    <RotateCcw size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Restore
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Permanently Blocked Section */}
+                            <div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                    <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <ShieldAlert size={16} /> Permanently Blocked Sessions
+                                    </h3>
+                                    {excludedItems.length > 0 && (
+                                        <button onClick={() => toggleBinSelectAll(excludedItems)} style={{ background: 'none', border: '1px solid #e2e8f0', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', color: '#64748b' }}>
+                                            {excludedItems.every(i => selectedBinItems.has(i._binKey)) ? 'Deselect All' : 'Select All'}
+                                        </button>
+                                    )}
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', marginBottom: '10px' }}>These sessions are deleted and blocked from re-syncing. They auto-expire after 30 days.</p>
+                                {excludedItems.length === 0 ? <p style={{ fontSize: '0.9rem', color: '#94a3b8', fontStyle: 'italic' }}>No blocked sessions.</p> : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                        {excludedItems.map(e => {
+                                            const daysLeft = getDaysRemaining(e.excluded_at);
+                                            return (
+                                                <div key={e._binKey} style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', background: '#fef2f2', borderRadius: '8px', border: selectedBinItems.has(e._binKey) ? '2px solid #008F4B' : '1px solid #fecaca', gap: '10px' }}>
+                                                    <button onClick={() => toggleBinSelect(e._binKey)} style={{ background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+                                                        {selectedBinItems.has(e._binKey) ? <CheckSquare size={18} color="#008F4B" /> : <Square size={18} color="#94a3b8" />}
+                                                    </button>
+                                                    <div style={{ flex: 1 }}>
+                                                        <span style={{ fontWeight: '500', fontSize: '0.85rem', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.item_id}</span>
+                                                        <small style={{ color: '#94a3b8' }}>by {e.excluded_by} • {new Date(e.excluded_at).toLocaleDateString()}</small>
+                                                        <div style={{ fontSize: '0.7rem', color: daysLeft <= 7 ? '#ef4444' : '#f59e0b', marginTop: '3px', fontWeight: '500' }}>
+                                                            ⏱ Auto-expires in {daysLeft} day{daysLeft !== 1 ? 's' : ''}{daysLeft <= 7 && ' ⚠️'}
+                                                        </div>
+                                                    </div>
+                                                    <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+                                                        <button onClick={() => handleRestoreExcluded(e.item_id)} style={{ padding: '5px 10px', background: '#fff', border: '1px solid #008F4B', color: '#008F4B', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                            Re-Sync
+                                                        </button>
+                                                        <button onClick={() => handlePermanentDeleteFromBin(e.item_id, e.item_type)} style={{ padding: '5px 10px', background: '#ef4444', border: 'none', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '500' }}>
+                                                            <Trash2 size={12} style={{ marginRight: '3px', verticalAlign: 'middle' }} /> Delete
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
         </>
     );
 }
