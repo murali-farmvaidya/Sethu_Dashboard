@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import api, { adminAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare } from 'lucide-react';
+import { Phone, Settings, Send, ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare } from 'lucide-react';
 import Header from '../components/Header';
 
 const ITEMS_PER_PAGE = 10;
@@ -41,6 +41,62 @@ export default function AgentDetails() {
 
     // Multi-select state (persists across pagination)
     const [selectedSessions, setSelectedSessions] = useState(new Set());
+
+    // Telephony State (Added)
+    const [telephonyConfig, setTelephonyConfig] = useState(null);
+    const [showConfigModal, setShowConfigModal] = useState(false);
+    const [showCallModal, setShowCallModal] = useState(false);
+    const [configForm, setConfigForm] = useState({ exophone: '', app_id: '' });
+    const [callForm, setCallForm] = useState({ receiverNumber: '', receiverName: '' });
+
+    // Fetch Telephony Config
+    const fetchTelephonyConfig = useCallback(async () => {
+        try {
+            const res = await api.get(`/api/telephony/config/${agentId}`);
+            if (res.data && res.data.exophone) {
+                setTelephonyConfig(res.data);
+                setConfigForm({ exophone: res.data.exophone, app_id: res.data.app_id });
+            }
+        } catch (err) {
+            console.error('Failed to fetch telephony config:', err);
+        }
+    }, [agentId]);
+
+    useEffect(() => {
+        if (isAdmin || user?.role === 'super_admin' || user?.id === 'master_root_0') {
+            fetchTelephonyConfig();
+        }
+    }, [fetchTelephonyConfig, isAdmin, user]);
+
+    const handleSaveConfig = async () => {
+        try {
+            await api.post('/api/telephony/config', {
+                agentId,
+                exophone: configForm.exophone,
+                appId: configForm.app_id
+            });
+            alert('Telephony configuration saved.');
+            setShowConfigModal(false);
+            fetchTelephonyConfig();
+        } catch (err) {
+            alert('Failed to save config: ' + (err.response?.data?.error || err.message));
+        }
+    };
+
+    const handleSendCall = async () => {
+        try {
+            await api.post('/api/telephony/call', {
+                agentId,
+                receiverNumber: callForm.receiverNumber,
+                receiverName: callForm.receiverName
+            });
+            alert('Call initiated successfully! The receiver should get a call shortly.');
+            setShowCallModal(false);
+            setCallForm({ receiverNumber: '', receiverName: '' });
+        } catch (err) {
+            alert('Failed to initiate call: ' + (err.response?.data?.error || err.message));
+        }
+    };
 
     const toggleSelect = (sessionId) => {
         setSelectedSessions(prev => {
@@ -535,6 +591,40 @@ export default function AgentDetails() {
 
                     </div>
 
+
+                    <div style={{ padding: '0 1.5rem 1.0rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: 'auto' }}>
+                        {/* Call Button */}
+                        <button
+                            className="btn-logout"
+                            style={{
+                                width: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px',
+                                background: telephonyConfig ? '#22c55e' : '#f1f5f9',
+                                color: telephonyConfig ? 'white' : '#94a3b8',
+                                border: telephonyConfig ? 'none' : '1px solid #cbd5e1',
+                                cursor: telephonyConfig ? 'pointer' : 'not-allowed',
+                                marginBottom: '0'
+                            }}
+                            onClick={() => telephonyConfig ? setShowCallModal(true) : alert('Telephony not configured for this agent. Please ask an Admin to configure it first.')}
+                        >
+                            <Phone size={18} /> Send Call
+                        </button>
+
+                        {/* Config Button (Admins Only) */}
+                        {(user?.role === 'super_admin' || user?.id === 'master_root_0') && (
+                            <button
+                                className="btn-logout"
+                                style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem', background: '#fff', border: '1px solid #cbd5e1', color: '#475569' }}
+                                onClick={() => setShowConfigModal(true)}
+                            >
+                                <Settings size={16} /> Configure Telephony
+                            </button>
+                        )}
+                    </div>
+
                     <div className="sidebar-footer">
                         <button className="btn-logout" onClick={() => navigate('/')}>
                             <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back to Dashboard
@@ -957,6 +1047,93 @@ export default function AgentDetails() {
                     </div>
                 </main>
             </div>
+
+
+            {/* Config Modal */}
+            {showConfigModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>Telephony Configuration</h2>
+                            <button onClick={() => setShowConfigModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '0.9rem' }}>Exophone (Virtual Number)</label>
+                                <input
+                                    type="text"
+                                    value={configForm.exophone}
+                                    onChange={e => setConfigForm({ ...configForm, exophone: e.target.value })}
+                                    placeholder="e.g. 04045210661"
+                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '0.9rem' }}>App ID (Flow ID)</label>
+                                <input
+                                    type="text"
+                                    value={configForm.app_id}
+                                    onChange={e => setConfigForm({ ...configForm, app_id: e.target.value })}
+                                    placeholder="e.g. 1175263"
+                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                />
+                            </div>
+                            <button
+                                onClick={handleSaveConfig}
+                                style={{ marginTop: '10px', padding: '10px', background: '#008F4B', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer' }}
+                            >
+                                Save Configuration
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Call Modal */}
+            {showCallModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 9999, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px', boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Phone size={20} /> Initiate Call
+                            </h2>
+                            <button onClick={() => setShowCallModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={20} /></button>
+                        </div>
+                        <div style={{ marginBottom: '15px', padding: '10px', background: '#f0fdf4', borderRadius: '6px', border: '1px solid #bbf7d0', fontSize: '0.85rem', color: '#166534' }}>
+                            Calling via <strong>{telephonyConfig?.exophone}</strong><br />
+                            Flow App ID: {telephonyConfig?.app_id}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '0.9rem' }}>Receiver Name</label>
+                                <input
+                                    type="text"
+                                    value={callForm.receiverName}
+                                    onChange={e => setCallForm({ ...callForm, receiverName: e.target.value })}
+                                    placeholder="Enter name for greeting"
+                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '0.9rem' }}>Receiver Phone Number</label>
+                                <input
+                                    type="text"
+                                    value={callForm.receiverNumber}
+                                    onChange={e => setCallForm({ ...callForm, receiverNumber: e.target.value })}
+                                    placeholder="e.g. 9876543210"
+                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                />
+                            </div>
+                            <button
+                                onClick={handleSendCall}
+                                style={{ marginTop: '10px', padding: '10px', background: '#008F4B', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                            >
+                                <Phone size={18} /> Send Call Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Recycle Bin Modal */}
             {recycleBinOpen && (() => {

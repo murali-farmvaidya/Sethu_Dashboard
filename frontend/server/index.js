@@ -274,6 +274,22 @@ const initDatabase = async () => {
             console.error(`Error creating ${getTableName('Excluded_Items')} table:`, tableErr.message);
         }
 
+        // Create Agent_Telephony_Config table
+        console.log(`Checking/Creating table: ${getTableName('Agent_Telephony_Config')}...`);
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS "${getTableName('Agent_Telephony_Config')}" (
+                    agent_id TEXT PRIMARY KEY,
+                    exophone TEXT NOT NULL,
+                    app_id TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            console.log(`✅ ${getTableName('Agent_Telephony_Config')} table initialized`);
+        } catch (tableErr) {
+            console.error(`Error creating Agent_Telephony_Config table:`, tableErr.message);
+        }
+
         console.log('✅ Database tables initialized/verified');
 
         // Seed Default Super Admin
@@ -2617,7 +2633,140 @@ app.post('/api/sessions/:sessionId/restore', async (req, res) => {
 });
 
 
+
+// --- TELEPHONY (EXOTEL) ROUTES ---
+// Get Config
+app.get('/api/telephony/config/:agentId', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    try {
+        const { agentId } = req.params;
+        const result = await pool.query(`SELECT * FROM "${getTableName('Agent_Telephony_Config')}" WHERE agent_id = $1`, [agentId]);
+        res.json(result.rows[0] || {});
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update Config (Admin Only)
+app.post('/api/telephony/config', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        // Allow Master Root or Super Admin or Admin
+        if (!decoded.role && !decoded.isMaster) return res.status(403).json({ error: 'Access denied' });
+
+        const { agentId, exophone, appId } = req.body;
+        if (!agentId || !exophone || !appId) return res.status(400).json({ error: 'Missing fields' });
+
+        await pool.query(`
+            INSERT INTO "${getTableName('Agent_Telephony_Config')}" (agent_id, exophone, app_id, updated_at)
+            VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+            ON CONFLICT (agent_id) DO UPDATE 
+            SET exophone = EXCLUDED.exophone, app_id = EXCLUDED.app_id, updated_at = CURRENT_TIMESTAMP
+        `, [agentId, exophone, appId]);
+
+        res.json({ success: true, message: 'Configuration saved' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Serve Dynamic ExoML for Greetings
+app.get('/api/telephony/exoml', (req, res) => {
+    const { name, app_id } = req.query;
+    const { accountSid } = exotelConfig;
+
+    // Generate Greeting
+    const greeting = name ? `Hello ${name}` : 'Hello';
+
+    // Redirect to Main Flow after greeting
+    const redirectUrl = `http://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
+
+    const exoml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>${greeting}</Say>
+    <Redirect>${redirectUrl}</Redirect>
+</Response>`;
+
+    res.header('Content-Type', 'text/xml');
+    res.send(exoml);
+});
+
+// Trigger Call
+app.post('/api/telephony/call', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    try {
+        const { agentId, receiverNumber, receiverName } = req.body;
+        if (!agentId || !receiverNumber) return res.status(400).json({ error: 'Missing call details' });
+
+        // 1. Get Config
+        const configResult = await pool.query(`SELECT * FROM "${getTableName('Agent_Telephony_Config')}" WHERE agent_id = $1`, [agentId]);
+        const config = configResult.rows[0];
+
+        if (!config) {
+            return res.status(400).json({ error: 'Telephony not configured. Please contact an admin to map Exophone/AppID.' });
+        }
+
+        // 2. Prepare Exotel
+        const { exophone, app_id } = config;
+        const { accountSid, apiKey, apiToken, subdomain } = exotelConfig;
+
+        if (!accountSid || !apiKey || !apiToken) {
+            return res.status(500).json({ error: 'Server telephony configuration error' });
+        }
+
+        const url = `https://${subdomain}/v1/Accounts/${accountSid}/Calls/connect.json`;
+        const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
+
+        // 3. Construct Flow URL (Dynamic Greeting if Possible)
+        let finalUrl = `http://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
+
+        // Attempt to use Dynamic Greeting via our Server
+        const publicUrl = process.env.SERVER_PUBLIC_URL || process.env.VITE_API_URL;
+
+        if (publicUrl && !publicUrl.includes('localhost') && !publicUrl.includes('127.0.0.1')) {
+            // Use configured public URL
+            finalUrl = `${publicUrl}/api/telephony/exoml?name=${encodeURIComponent(receiverName || '')}&app_id=${app_id}`;
+            console.log(`🗣 Using Dynamic Greeting via: ${finalUrl}`);
+        } else {
+            console.warn('⚠️ Dynamic greeting requires SERVER_PUBLIC_URL (or valid VITE_API_URL) to be set in .env (must be public, not localhost). Falling back to static flow.');
+        }
+
+        // Exotel expects x-www-form-urlencoded
+        const params = new URLSearchParams();
+        params.append('From', receiverNumber); // Customer Number
+        params.append('CallerId', exophone); // Virtual Number
+        params.append('Url', finalUrl); // Flow URL
+        if (receiverName) {
+            params.append('CustomField', receiverName);
+        }
+
+        console.log(`📞 Initiating call via Exotel for Agent ${agentId} to ${receiverNumber} via ${exophone}`);
+
+        const response = await axios.post(url, params, {
+            headers: {
+                'Authorization': `Basic ${auth}`,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        });
+
+        res.json({ success: true, data: response.data });
+    } catch (err) {
+        console.error('❌ Exotel Call Failed:', err.response?.data || err.message);
+        res.status(500).json({
+            error: 'Failed to initiate call',
+            details: err.response?.data?.RestException?.Message || err.message
+        });
+    }
+});
+
+
 // Serve static files from the React app
+
 const distPath = path.join(__dirname, '../dist');
 if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
