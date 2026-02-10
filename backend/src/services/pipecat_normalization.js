@@ -174,6 +174,19 @@ function parseTTSLog(logMessage) {
     const match3 = logMessage.match(/Generating speech for text:\s*\[(.+)\]/);
     if (match3) return match3[1];
 
+    // Additional Patterns for consistency
+    // "TTS input: [text]"
+    const match4 = logMessage.match(/TTS input:\s*\[(.+)\]/);
+    if (match4) return match4[1];
+
+    // "Generating response: [text]"
+    const match5 = logMessage.match(/Generating response:\s*\[(.+)\]/);
+    if (match5) return match5[1];
+
+    // "Speaking: [text]"
+    const match6 = logMessage.match(/Speaking:\s*\[(.+)\]/);
+    if (match6) return match6[1];
+
     return null;
 }
 

@@ -2683,7 +2683,7 @@ app.get('/api/telephony/exoml', (req, res) => {
     const greeting = name ? `Hello ${name}` : 'Hello';
 
     // Redirect to Main Flow after greeting
-    const redirectUrl = `http://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
+    const redirectUrl = `https://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
 
     const exoml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -2723,7 +2723,7 @@ app.post('/api/telephony/call', async (req, res) => {
         const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
 
         // 3. Construct Flow URL (Dynamic Greeting if Possible)
-        let finalUrl = `http://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
+        let finalUrl = `https://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
 
         // Attempt to use Dynamic Greeting via our Server
         const publicUrl = process.env.SERVER_PUBLIC_URL || process.env.VITE_API_URL;
