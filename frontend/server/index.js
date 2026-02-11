@@ -2722,19 +2722,13 @@ app.post('/api/telephony/call', async (req, res) => {
         const url = `https://${subdomain}/v1/Accounts/${accountSid}/Calls/connect.json`;
         const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
 
-        // 3. Construct Flow URL (Dynamic Greeting if Possible)
-        let finalUrl = `https://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
+        // 3. Always use Direct Exotel Flow URL
+        // NOTE: Dynamic greeting via SERVER_PUBLIC_URL was disabled because Exotel
+        // cannot reach the server externally (firewall/SSL/nginx), causing instant call drops.
+        // The receiver name is still passed via CustomField for the Exotel flow to use.
+        const finalUrl = `https://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
 
-        // Attempt to use Dynamic Greeting via our Server
-        const publicUrl = process.env.SERVER_PUBLIC_URL || process.env.VITE_API_URL;
-
-        if (publicUrl && !publicUrl.includes('localhost') && !publicUrl.includes('127.0.0.1')) {
-            // Use configured public URL
-            finalUrl = `${publicUrl}/api/telephony/exoml?name=${encodeURIComponent(receiverName || '')}&app_id=${app_id}`;
-            console.log(`🗣 Using Dynamic Greeting via: ${finalUrl}`);
-        } else {
-            console.warn('⚠️ Dynamic greeting requires SERVER_PUBLIC_URL (or valid VITE_API_URL) to be set in .env (must be public, not localhost). Falling back to static flow.');
-        }
+        console.log(`Using Exotel Flow URL: ${finalUrl}`);
 
         // Exotel expects x-www-form-urlencoded
         const params = new URLSearchParams();
