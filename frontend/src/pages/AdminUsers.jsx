@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { adminAPI, authAPI } from '../services/api';
 import Header from '../components/Header';
 import { Users, Plus, Edit2, Trash2, Power, Mail, UserPlus, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -113,9 +114,9 @@ export default function AdminUsers() {
       // Refresh creators list in case a new person just became a creator
       const creatorRes = await adminAPI.getCreators();
       setCreators(creatorRes.data.creators || []);
-      alert('User created! Default password: Password123! (Mock Mode)');
+      toast.success('User created! Default password: Password123! (Mock Mode)');
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create user');
+      toast.error(err.response?.data?.error || 'Failed to create user');
     }
   };
 
@@ -136,9 +137,9 @@ export default function AdminUsers() {
       setShowEditAgentsModal(false);
       setShowAgentDropdown(false);
       loadUsers(true);
-      alert('User updated successfully!');
+      toast.success('User updated successfully!');
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to update user');
+      toast.error(err.response?.data?.error || 'Failed to update user');
     }
   };
 
@@ -173,7 +174,7 @@ export default function AdminUsers() {
           loadUsers(true);
           setShowConfirmModal(false);
         } catch (err) {
-          alert(err.response?.data?.error || 'Failed to toggle user status');
+          toast.error(err.response?.data?.error || 'Failed to toggle user status');
         }
       }
     });
@@ -190,7 +191,7 @@ export default function AdminUsers() {
           loadUsers(true);
           setShowConfirmModal(false);
         } catch (err) {
-          alert(err.response?.data?.error || 'Failed to delete user');
+          toast.error(err.response?.data?.error || 'Failed to delete user');
         }
       }
     });
@@ -204,10 +205,10 @@ export default function AdminUsers() {
       onConfirm: async () => {
         try {
           await adminAPI.sendPasswordReset(userId);
-          alert('Password reset email sent!');
+          toast.success('Password reset email sent!');
           setShowConfirmModal(false);
         } catch (err) {
-          alert(err.response?.data?.error || 'Failed to send reset email');
+          toast.error(err.response?.data?.error || 'Failed to send reset email');
         }
       }
     });

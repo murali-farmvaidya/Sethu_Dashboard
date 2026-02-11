@@ -1,11 +1,37 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { adminAPI } from '../services/api';
+import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff, CheckSquare, Square, MinusSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Header from '../components/Header';
 
 const ITEMS_PER_PAGE = 10;
+
+const confirmToast = (message, onConfirm) => {
+    toast((t) => (
+        <div style={{ minWidth: '250px' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#1f2937' }}>{message}</p>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button
+                    onClick={() => toast.dismiss(t.id)}
+                    style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#374151' }}
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={() => {
+                        toast.dismiss(t.id);
+                        onConfirm();
+                    }}
+                    style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', background: '#ef4444', color: 'white', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+                >
+                    Confirm
+                </button>
+            </div>
+        </div>
+    ), { duration: 6000, position: 'top-center', style: { borderLeft: '4px solid #ef4444' } });
+};
 
 export default function Dashboard() {
     const { user } = useAuth();
@@ -51,17 +77,19 @@ export default function Dashboard() {
 
     const clearAgentSelection = () => setSelectedAgents(new Set());
 
-    const handleBulkAgentAction = async (permanent) => {
+    const handleBulkAgentAction = (permanent) => {
         const count = selectedAgents.size;
         const action = permanent ? 'PERMANENTLY DELETE' : 'HIDE';
-        if (!window.confirm(`Are you sure you want to ${action} ${count} agent(s)?`)) return;
-        let s = 0;
-        for (const id of selectedAgents) {
-            try { await adminAPI.deleteAgent(id, permanent); s++; } catch (e) { console.error(e); }
-        }
-        alert(`${s} of ${count} agents ${permanent ? 'permanently deleted' : 'hidden'}.`);
-        clearAgentSelection();
-        fetchAgents();
+
+        confirmToast(`Are you sure you want to ${action} ${count} agent(s)?`, async () => {
+            let s = 0;
+            for (const id of selectedAgents) {
+                try { await adminAPI.deleteAgent(id, permanent); s++; } catch (e) { console.error(e); }
+            }
+            toast.success(`${s} of ${count} agents ${permanent ? 'permanently deleted' : 'hidden'}.`);
+            clearAgentSelection();
+            fetchAgents();
+        });
     };
 
     const toggleBinSelect = (key) => {
@@ -82,29 +110,31 @@ export default function Dashboard() {
         });
     };
 
-    const handleBulkBinAction = async (action) => {
+    const handleBulkBinAction = (action) => {
         const count = selectedBinItems.size;
         let label = action === 'restore' ? 'RESTORE' : action === 'resync' ? 'RE-SYNC' : 'PERMANENTLY DELETE';
-        if (!window.confirm(`Are you sure you want to ${label} ${count} item(s)?`)) return;
-        let s = 0;
-        for (const key of selectedBinItems) {
-            try {
-                const [type, id] = key.split('::');
-                const { default: api } = await import('../services/api');
-                if (action === 'restore') {
-                    await adminAPI.restoreAgent(id);
-                } else if (action === 'resync') {
-                    await api.delete(`/api/data-admin/excluded/agent/${id}`);
-                } else {
-                    await api.delete(`/api/data-admin/excluded-permanent/agent/${id}`);
-                }
-                s++;
-            } catch (e) { console.error(e); }
-        }
-        alert(`${s} of ${count} items processed.`);
-        setSelectedBinItems(new Set());
-        fetchRecycleBin();
-        fetchAgents();
+
+        confirmToast(`Are you sure you want to ${label} ${count} item(s)?`, async () => {
+            let s = 0;
+            for (const key of selectedBinItems) {
+                try {
+                    const [type, id] = key.split('::');
+                    const { default: api } = await import('../services/api');
+                    if (action === 'restore') {
+                        await adminAPI.restoreAgent(id);
+                    } else if (action === 'resync') {
+                        await api.delete(`/api/data-admin/excluded/agent/${id}`);
+                    } else {
+                        await api.delete(`/api/data-admin/excluded-permanent/agent/${id}`);
+                    }
+                    s++;
+                } catch (e) { console.error(e); }
+            }
+            toast.success(`${s} of ${count} items processed.`);
+            setSelectedBinItems(new Set());
+            fetchRecycleBin();
+            fetchAgents();
+        });
     };
 
     const fetchRecycleBin = async () => {
@@ -137,20 +167,23 @@ export default function Dashboard() {
             }
             fetchRecycleBin();
             fetchAgents();
+            toast.success(type === 'hidden' ? 'Agent restored from hidden list.' : 'Agent restored from blocklist.');
         } catch (e) {
-            alert('Restore failed: ' + (e.response?.data?.error || e.message));
+            toast.error('Restore failed: ' + (e.response?.data?.error || e.message));
         }
     };
 
-    const handlePermanentDeleteFromBin = async (id, itemType) => {
-        if (!window.confirm(`Are you sure you want to PERMANENTLY remove this ${itemType} from the recycle bin? It will NOT be re-synced ever.`)) return;
-        try {
-            const { default: api } = await import('../services/api');
-            await api.delete(`/api/data-admin/excluded-permanent/${itemType}/${id}`);
-            fetchRecycleBin();
-        } catch (e) {
-            alert('Permanent delete failed: ' + (e.response?.data?.error || e.message));
-        }
+    const handlePermanentDeleteFromBin = (id, itemType) => {
+        confirmToast(`Are you sure you want to PERMANENTLY remove this ${itemType} from the recycle bin? It will NOT be re-synced ever.`, async () => {
+            try {
+                const { default: api } = await import('../services/api');
+                await api.delete(`/api/data-admin/excluded-permanent/${itemType}/${id}`);
+                fetchRecycleBin();
+                toast.success('Permanently deleted from recycle bin.');
+            } catch (e) {
+                toast.error('Permanent delete failed: ' + (e.response?.data?.error || e.message));
+            }
+        });
     };
 
     const getDaysRemaining = (excludedAt) => {
@@ -241,22 +274,23 @@ export default function Dashboard() {
         setCurrentPage(1);
     };
 
-    const handleDeleteAgent = async (agentId, e, permanent = false) => {
+    const handleDeleteAgent = (agentId, e, permanent = false) => {
         e.stopPropagation();
         const msg = permanent
             ? 'Are you sure you want to PERMANENTLY DELETE and BLOCK this agent? This cannot be undone easily.'
             : 'Are you sure you want to HIDE this agent?';
 
-        if (!window.confirm(msg)) return;
-
-        try {
-            await adminAPI.deleteAgent(agentId, permanent);
-            setAgents(prev => prev.filter(a => (a.agent_id || a._id) !== agentId));
-            setStats(prev => ({ ...prev, totalAgents: Math.max(0, prev.totalAgents - 1) }));
-        } catch (err) {
-            console.error(err);
-            alert('Failed: ' + (err.response?.data?.error || err.message));
-        }
+        confirmToast(msg, async () => {
+            try {
+                await adminAPI.deleteAgent(agentId, permanent);
+                setAgents(prev => prev.filter(a => (a.agent_id || a._id) !== agentId));
+                setStats(prev => ({ ...prev, totalAgents: Math.max(0, prev.totalAgents - 1) }));
+                toast.success(permanent ? 'Agent permanently deleted.' : 'Agent hidden.');
+            } catch (err) {
+                console.error(err);
+                toast.error('Failed: ' + (err.response?.data?.error || err.message));
+            }
+        });
     };
 
     if (loading && agents.length === 0) return <div className="loading">Loading dashboard...</div>;

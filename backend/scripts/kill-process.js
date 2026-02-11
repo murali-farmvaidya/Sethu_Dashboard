@@ -16,32 +16,53 @@ if (os.platform() !== 'win32') {
         if (!err) {
             console.log(`✅ Killed existing processes matching "${scriptName}".`);
         } else {
-            // pkill returns exit code 1 if no process matched
             console.log(`ℹ️  No previous process found.`);
         }
     });
 } else {
     // Windows Implementation
-    const query = `wmic process where "commandline like '%${scriptName}%' and name='node.exe'" get processid`;
+    // Use CSV format to easily parse command line and PID
+    const query = `wmic process where "name='node.exe' and commandline like '%${scriptName}%'" get commandline,processid /format:csv`;
 
     exec(query, (err, stdout) => {
         if (err) {
-            // Command failed or no process found (sometimes wmic errors if none found)
+            // wmic returns error if no instances found, which is fine
             console.log(`ℹ️  No previous process found (or query check failed).`);
             return;
         }
 
-        // Parse output
-        const lines = stdout.trim().split(/\s+/);
-        // First line is header "ProcessId", rest are PIDs
-        let pids = lines.slice(1).filter(pid => /^\d+$/.test(pid));
+        const lines = stdout.trim().split(/\r?\n/);
+        const pidsToKill = [];
 
-        // Filter out current process PID just in case
-        pids = pids.filter(pid => pid !== process.pid.toString());
+        lines.forEach(line => {
+            const parts = line.split(',');
+            // CSV format: Node,CommandLine,ProcessId
+            const pid = parts[parts.length - 1].trim();
 
-        if (pids.length > 0) {
-            console.log(`Found PIDs: ${pids.join(', ')}. Killing...`);
-            exec(`taskkill /F /PID ${pids.join(' /PID ')}`, (killErr) => {
+            if (!/^\d+$/.test(pid)) return; // Skip header
+
+            const fullLine = line.toLowerCase();
+            const currentPid = process.pid.toString();
+
+            // Check if it's THIS process
+            if (pid === currentPid) {
+                console.log(`ℹ️  Skipping current process (PID: ${pid})`);
+                return;
+            }
+
+            // Check if it's the kill-process script itself
+            if (fullLine.includes('kill-process')) {
+                console.log(`ℹ️  Skipping kill-process script (PID: ${pid})`);
+                return;
+            }
+
+            pidsToKill.push(pid);
+        });
+
+        if (pidsToKill.length > 0) {
+            console.log(`Found PIDs to kill: ${pidsToKill.join(', ')}.`);
+            // Force kill
+            exec(`taskkill /F /PID ${pidsToKill.join(' /PID ')}`, (killErr) => {
                 if (!killErr) console.log('✅ Killed existing processes.');
                 else console.log('⚠️ Failed to kill processes (might be already dead).');
             });
