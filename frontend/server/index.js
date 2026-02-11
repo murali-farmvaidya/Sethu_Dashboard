@@ -1305,7 +1305,7 @@ app.post('/api/users', async (req, res) => {
     }
 
     const { email, role, subscriptionTier, agents } = req.body;
-    const user_id = `user_${Date.now()} `;
+    const user_id = `user_${Date.now()}`;
     const password = 'Password123!';
 
     try {
@@ -1852,7 +1852,7 @@ app.get('/api/user/dashboard', async (req, res) => {
 
         if (search) {
             whereClauses.push(`(a.name ILIKE $${queryParams.length + 1} OR a.agent_id ILIKE $${queryParams.length + 1})`);
-            queryParams.push(`% ${search}% `);
+            queryParams.push(`%${search}%`);
         }
 
         const whereSql = whereClauses.length > 0 ? ` WHERE ` + whereClauses.join(' AND ') : '';
@@ -2081,7 +2081,7 @@ RETURNING *
     `, [status, userId, sessionId]);
         }
 
-        console.log(`✅ Review status updated: ${sessionId} -> ${status} by ${userId} `);
+        console.log(`✅ Review status updated: ${sessionId} -> ${status} by ${userId}`);
 
         res.json({
             success: true,
@@ -2158,7 +2158,7 @@ app.post('/api/admin/users/:userId/agents/:agentId/mark-permission', async (req,
             WHERE user_id = $2 AND agent_id = $3
     `, [canMark, userId, agentId]);
 
-        console.log(`✅ Mark permission updated: User ${userId} on Agent ${agentId} -> can_mark: ${canMark} `);
+        console.log(`✅ Mark permission updated: User ${userId} on Agent ${agentId} -> can_mark: ${canMark}`);
 
         res.json({
             success: true,
