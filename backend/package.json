@@ -4,9 +4,9 @@
   "description": "Sync Pipecat Cloud data to MongoDB",
   "main": "src/index.js",
   "scripts": {
-    "start": "node scripts/sync-realtime.js",
-    "dev": "nodemon scripts/sync-realtime.js",
-    "sync": "node scripts/sync-realtime.js",
+    "start": "node scripts/kill-process.js sync-realtime.js && node scripts/sync-realtime.js",
+    "dev": "node scripts/kill-process.js sync-realtime.js && nodemon scripts/sync-realtime.js",
+    "sync": "node scripts/kill-process.js sync-realtime.js && node scripts/sync-realtime.js",
     "server": "node src/server.js",
     "server:dev": "nodemon src/server.js",
     "init-users": "node scripts/init-user-tables.js",
