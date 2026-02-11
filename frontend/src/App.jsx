@@ -115,12 +115,51 @@ function AppRoutes() {
   );
 }
 
+import { Toaster } from 'react-hot-toast';
+
 function App() {
   return (
     <AuthProvider>
       <Router>
         <div className="app-container">
           <DeactivationModal />
+          <Toaster
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: '#fff',
+                color: '#333',
+                border: '1px solid #e0e0e0',
+                padding: '16px',
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+              },
+              success: {
+                iconTheme: {
+                  primary: '#4CAF50', // Green
+                  secondary: '#fff',
+                },
+                style: {
+                  borderLeft: '4px solid #4CAF50',
+                }
+              },
+              error: {
+                iconTheme: {
+                  primary: '#FFC107', // Yellow/Amber for error/warning per request
+                  secondary: '#fff',
+                },
+                style: {
+                  borderLeft: '4px solid #FFC107',
+                }
+              },
+              loading: {
+                iconTheme: {
+                  primary: '#FFC107', // Yellow
+                  secondary: '#fff',
+                },
+              }
+            }}
+          />
           <AppRoutes />
         </div>
       </Router>

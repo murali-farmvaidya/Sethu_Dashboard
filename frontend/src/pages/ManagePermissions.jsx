@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import api from '../api/client';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X } from 'lucide-react';
@@ -79,7 +80,7 @@ export default function ManagePermissions() {
 
         } catch (err) {
             console.error('Failed to update permission:', err);
-            alert('Failed to update permission. Please try again.');
+            toast.error('Failed to update permission. Please try again.');
             // Revert on error
             fetchData();
         } finally {

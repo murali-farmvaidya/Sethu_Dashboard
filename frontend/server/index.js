@@ -2782,6 +2782,80 @@ app.post('/api/telephony/call', async (req, res) => {
 });
 
 
+// Proxy Recording for Exotel Authenticated URLs
+app.get('/api/proxy-recording', async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).send('Missing URL');
+
+    if (!exotelConfig.apiKey || !exotelConfig.apiToken) {
+        console.warn('⚠️ Exotel credentials missing for recording proxy');
+        return res.status(500).send('Server configuration error');
+    }
+
+    try {
+        let targetUrl = url;
+        // Force .com for recordings as .in often has DNS issues
+        if (targetUrl && targetUrl.includes('recordings.exotel.in')) {
+            targetUrl = targetUrl.replace('recordings.exotel.in', 'recordings.exotel.com');
+        }
+
+        const auth = Buffer.from(`${exotelConfig.apiKey}:${exotelConfig.apiToken}`).toString('base64');
+
+        // 1. HEAD request to get metadata (with Auth)
+        const headResponse = await axios.head(targetUrl, {
+            headers: { 'Authorization': `Basic ${auth}` },
+            timeout: 5000
+        });
+
+        const fileSize = headResponse.headers['content-length'];
+        const contentType = headResponse.headers['content-type'] || 'audio/wav';
+
+        const range = req.headers.range;
+        if (range && fileSize >= 0) {
+            const parts = range.replace(/bytes=/, "").split("-");
+            const start = parseInt(parts[0], 10);
+            const end = parts[1] ? parseInt(parts[1], 10) : parseInt(fileSize) - 1;
+            const chunksize = (end - start) + 1;
+
+            const file = await axios({
+                method: 'get',
+                url: targetUrl,
+                responseType: 'stream',
+                headers: {
+                    'Range': `bytes=${start}-${end}`,
+                    'Authorization': `Basic ${auth}`
+                },
+                timeout: 10000
+            });
+
+            res.writeHead(206, {
+                'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+                'Accept-Ranges': 'bytes',
+                'Content-Length': chunksize,
+                'Content-Type': contentType,
+            });
+            file.data.pipe(res);
+        } else {
+            res.writeHead(200, {
+                'Content-Length': fileSize,
+                'Content-Type': contentType,
+            });
+            const file = await axios({
+                method: 'get',
+                url: targetUrl,
+                responseType: 'stream',
+                headers: { 'Authorization': `Basic ${auth}` },
+                timeout: 10000
+            });
+            file.data.pipe(res);
+        }
+    } catch (error) {
+        const statusCode = error.response ? error.response.status : 500;
+        console.error(`❌ Proxy failed for ${url}: ${error.message} (Status: ${statusCode})`);
+        res.status(statusCode).send(`Failed to proxy recording: ${error.message}`);
+    }
+});
+
 // Serve static files from the React app
 
 const distPath = path.join(__dirname, '../dist');

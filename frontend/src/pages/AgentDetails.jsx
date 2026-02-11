@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import api, { adminAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -6,6 +7,31 @@ import { Phone, Settings, Send, ArrowLeft, Search, Download, ChevronDown, Chevro
 import Header from '../components/Header';
 
 const ITEMS_PER_PAGE = 10;
+
+const confirmToast = (message, onConfirm) => {
+    toast((t) => (
+        <div style={{ minWidth: '250px' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#1f2937' }}>{message}</p>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button
+                    onClick={() => toast.dismiss(t.id)}
+                    style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#374151' }}
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={() => {
+                        toast.dismiss(t.id);
+                        onConfirm();
+                    }}
+                    style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', background: '#ef4444', color: 'white', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+                >
+                    Confirm
+                </button>
+            </div>
+        </div>
+    ), { duration: 6000, position: 'top-center', style: { borderLeft: '4px solid #ef4444' } });
+};
 
 export default function AgentDetails() {
     const { user, isAdmin } = useAuth();
@@ -75,11 +101,11 @@ export default function AgentDetails() {
                 exophone: configForm.exophone,
                 appId: configForm.app_id
             });
-            alert('Telephony configuration saved.');
+            toast.success('Telephony configuration saved.');
             setShowConfigModal(false);
             fetchTelephonyConfig();
         } catch (err) {
-            alert('Failed to save config: ' + (err.response?.data?.error || err.message));
+            toast.error('Failed to save config: ' + (err.response?.data?.error || err.message));
         }
     };
 
@@ -89,7 +115,7 @@ export default function AgentDetails() {
             const numbers = callForm.receiverNumber.split(/[\n,]+/).map(n => n.trim()).filter(n => n);
 
             if (numbers.length === 0) {
-                alert('Please enter at least one phone number.');
+                toast.error('Please enter at least one phone number.');
                 return;
             }
 
@@ -101,15 +127,15 @@ export default function AgentDetails() {
 
             if (res.data.bulk) {
                 const s = res.data.summary;
-                alert(`Bulk Call Initiated!\nTotal: ${s.total}\nSuccess: ${s.success}\nFailed: ${s.failed}`);
+                toast.success(`Bulk Call Initiated!\nTotal: ${s.total}\nSuccess: ${s.success}\nFailed: ${s.failed}`);
             } else {
-                alert('Call initiated successfully!');
+                toast.success('Call initiated successfully!');
             }
 
             setShowCallModal(false);
             setCallForm({ receiverNumber: '', receiverName: '' });
         } catch (err) {
-            alert('Failed to initiate call: ' + (err.response?.data?.error || err.message));
+            toast.error('Failed to initiate call: ' + (err.response?.data?.error || err.message));
         }
     };
 
@@ -141,23 +167,24 @@ export default function AgentDetails() {
 
     const clearSelection = () => setSelectedSessions(new Set());
 
-    const handleBulkAction = async (permanent) => {
+    const handleBulkAction = (permanent) => {
         const count = selectedSessions.size;
         const action = permanent ? 'PERMANENTLY DELETE' : 'HIDE';
-        if (!window.confirm(`Are you sure you want to ${action} ${count} session(s)?`)) return;
 
-        let successCount = 0;
-        for (const sessionId of selectedSessions) {
-            try {
-                await adminAPI.deleteSession(sessionId, permanent);
-                successCount++;
-            } catch (err) {
-                console.error(`Failed to ${action} session ${sessionId}:`, err);
+        confirmToast(`Are you sure you want to ${action} ${count} session(s)?`, async () => {
+            let successCount = 0;
+            for (const sessionId of selectedSessions) {
+                try {
+                    await adminAPI.deleteSession(sessionId, permanent);
+                    successCount++;
+                } catch (err) {
+                    console.error(`Failed to ${action} session ${sessionId}:`, err);
+                }
             }
-        }
-        alert(`${successCount} of ${count} sessions ${permanent ? 'permanently deleted' : 'hidden'}.`);
-        clearSelection();
-        fetchSessions();
+            toast.success(`${successCount} of ${count} sessions ${permanent ? 'permanently deleted' : 'hidden'}.`);
+            clearSelection();
+            fetchSessions();
+        });
     };
 
     const fetchSessions = useCallback(async () => {
@@ -300,7 +327,7 @@ export default function AgentDetails() {
         } catch (err) {
             console.error('Failed to update review status:', err);
             const errorMessage = err.response?.data?.error || 'Failed to update status. Please try again.';
-            alert(errorMessage);
+            toast.error(errorMessage);
             // Refresh to revert the UI if needed
             fetchSessions();
         } finally {
@@ -389,7 +416,7 @@ export default function AgentDetails() {
             URL.revokeObjectURL(url);
         } catch (err) {
             console.error('Download failed:', err);
-            alert('Failed to download session data');
+            toast.error('Failed to download session data');
         }
         setDownloadDropdown(null);
     };
@@ -407,43 +434,46 @@ export default function AgentDetails() {
             }
         } catch (err) {
             console.error('Failed to generate summary:', err);
-            alert('Failed to generate summary. Please try again.');
+            toast.error('Failed to generate summary. Please try again.');
         } finally {
             setGeneratingSummary(prev => ({ ...prev, [sessionId]: false }));
         }
     };
 
-    const handleDeleteAgent = async (permanent = false) => {
+    const handleDeleteAgent = (permanent = false) => {
         const msg = permanent
             ? 'Are you sure you want to PERMANENTLY DELETE this agent? This cannot be undone.'
             : 'Are you sure you want to HIDE this agent?';
-        if (!window.confirm(msg)) return;
 
-        try {
-            await adminAPI.deleteAgent(agentId, permanent);
+        confirmToast(msg, async () => {
+            try {
+                await adminAPI.deleteAgent(agentId, permanent);
 
-            alert(permanent ? 'Agent permanently deleted' : 'Agent hidden');
-            navigate('/admin');
-        } catch (err) {
-            console.error('Failed to delete agent:', err);
-            alert('Failed: ' + (err.response?.data?.error || err.message));
-        }
+                toast.success(permanent ? 'Agent permanently deleted' : 'Agent hidden');
+                navigate('/admin');
+            } catch (err) {
+                console.error('Failed to delete agent:', err);
+                toast.error('Failed: ' + (err.response?.data?.error || err.message));
+            }
+        });
     };
 
-    const handleDeleteSession = async (sessionId, e, permanent = false) => {
+    const handleDeleteSession = (sessionId, e, permanent = false) => {
         if (e) e.stopPropagation();
         const msg = permanent ? 'Permanently delete this session?' : 'Hide this session?';
-        if (!window.confirm(msg)) return;
 
-        try {
-            await adminAPI.deleteSession(sessionId, permanent);
-            // Remove locally
-            setSessions(prev => prev.filter(s => s.session_id !== sessionId));
-            setTotalSessions(prev => prev - 1);
-        } catch (err) {
-            console.error('Failed to delete session:', err);
-            alert('Failed: ' + (err.response?.data?.error || err.message));
-        }
+        confirmToast(msg, async () => {
+            try {
+                await adminAPI.deleteSession(sessionId, permanent);
+                // Remove locally
+                setSessions(prev => prev.filter(s => s.session_id !== sessionId));
+                setTotalSessions(prev => prev - 1);
+                toast.success(permanent ? 'Session permanently deleted' : 'Session hidden');
+            } catch (err) {
+                console.error('Failed to delete session:', err);
+                toast.error('Failed: ' + (err.response?.data?.error || err.message));
+            }
+        });
     };
 
     const handleRestoreSession = async (sessionId, e) => {
@@ -452,7 +482,7 @@ export default function AgentDetails() {
             await api.post(`/api/sessions/${sessionId}/restore`);
             fetchSessions(); // Refresh
         } catch (err) {
-            alert('Restore failed');
+            toast.error('Restore failed');
         }
     };
 
@@ -490,22 +520,24 @@ export default function AgentDetails() {
     const handleRestoreExcluded = async (id) => {
         try {
             await api.delete(`/api/data-admin/excluded/session/${id}`);
-            alert('Session restored from blocklist. It will be re-fetched in the next sync cycle.');
+            toast.success('Session restored from blocklist. It will be re-fetched in the next sync cycle.');
             fetchRecycleBin();
         } catch (e) {
             console.error("Restore failed:", e);
-            alert('Restore failed: ' + (e.response?.data?.error || e.message));
+            toast.error('Restore failed: ' + (e.response?.data?.error || e.message));
         }
     };
 
-    const handlePermanentDeleteFromBin = async (id, itemType) => {
-        if (!window.confirm('Are you sure you want to PERMANENTLY remove this session? It will NOT be re-synced ever.')) return;
-        try {
-            await api.delete(`/api/data-admin/excluded-permanent/${itemType}/${id}`);
-            fetchRecycleBin();
-        } catch (e) {
-            alert('Permanent delete failed: ' + (e.response?.data?.error || e.message));
-        }
+    const handlePermanentDeleteFromBin = (id, itemType) => {
+        confirmToast('Are you sure you want to PERMANENTLY remove this session? It will NOT be re-synced ever.', async () => {
+            try {
+                await api.delete(`/api/data-admin/excluded-permanent/${itemType}/${id}`);
+                fetchRecycleBin();
+                toast.success('Permanently deleted from bin');
+            } catch (e) {
+                toast.error('Permanent delete failed: ' + (e.response?.data?.error || e.message));
+            }
+        });
     };
 
     const toggleBinSelect = (key) => {
@@ -526,31 +558,32 @@ export default function AgentDetails() {
         });
     };
 
-    const handleBulkBinAction = async (action) => {
+    const handleBulkBinAction = (action) => {
         const count = selectedBinItems.size;
         let label = action === 'restore' ? 'RESTORE' : action === 'resync' ? 'RE-SYNC' : 'PERMANENTLY DELETE';
-        if (!window.confirm(`Are you sure you want to ${label} ${count} item(s)?`)) return;
 
-        let successCount = 0;
-        for (const key of selectedBinItems) {
-            try {
-                const [type, id] = key.split('::');
-                if (action === 'restore') {
-                    await api.post(`/api/sessions/${id}/restore`);
-                } else if (action === 'resync') {
-                    await api.delete(`/api/data-admin/excluded/session/${id}`);
-                } else {
-                    await api.delete(`/api/data-admin/excluded-permanent/session/${id}`);
+        confirmToast(`Are you sure you want to ${label} ${count} item(s)?`, async () => {
+            let successCount = 0;
+            for (const key of selectedBinItems) {
+                try {
+                    const [type, id] = key.split('::');
+                    if (action === 'restore') {
+                        await api.post(`/api/sessions/${id}/restore`);
+                    } else if (action === 'resync') {
+                        await api.delete(`/api/data-admin/excluded/session/${id}`);
+                    } else {
+                        await api.delete(`/api/data-admin/excluded-permanent/session/${id}`);
+                    }
+                    successCount++;
+                } catch (err) {
+                    console.error(`Bulk action failed for ${key}:`, err);
                 }
-                successCount++;
-            } catch (err) {
-                console.error(`Bulk action failed for ${key}:`, err);
             }
-        }
-        alert(`${successCount} of ${count} items processed.`);
-        setSelectedBinItems(new Set());
-        fetchRecycleBin();
-        fetchSessions();
+            toast.success(`${successCount} of ${count} items processed.`);
+            setSelectedBinItems(new Set());
+            fetchRecycleBin();
+            fetchSessions();
+        });
     };
 
     if (loading && sessions.length === 0) return <div className="loading">Loading sessions...</div>;
@@ -623,7 +656,7 @@ export default function AgentDetails() {
                                 cursor: telephonyConfig ? 'pointer' : 'not-allowed',
                                 marginBottom: '0'
                             }}
-                            onClick={() => telephonyConfig ? setShowCallModal(true) : alert('Telephony not configured for this agent. Please ask an Admin to configure it first.')}
+                            onClick={() => telephonyConfig ? setShowCallModal(true) : toast.error('Telephony not configured for this agent. Please ask an Admin to configure it first.')}
                         >
                             <Phone size={18} /> Send Call
                         </button>
