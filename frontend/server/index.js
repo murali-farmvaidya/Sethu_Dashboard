@@ -1301,7 +1301,10 @@ app.post('/api/users', async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET);
         requesterId = decoded.userId;
     } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        return res.status(500).json({ error: `Server authentication error (POST /api/users): ${err.message}` });
     }
 
     const { email, role, subscriptionTier, agents } = req.body;
@@ -1388,7 +1391,10 @@ app.put('/api/users/:userId', async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET);
         requesterId = decoded.userId;
     } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        return res.status(500).json({ error: `Server authentication error (PUT /api/users): ${err.message}` });
     }
 
     try {
@@ -1522,13 +1528,17 @@ app.delete('/api/users/:userId', async (req, res) => {
 
     const token = authHeader.split(' ')[1];
     let isMaster = false;
+    let requesterId = null;
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         requesterId = decoded.userId;
         isMaster = decoded.isMaster && requesterId === 'master_root_0';
     } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        return res.status(500).json({ error: `Server authentication error: ${err.message}` });
     }
 
     try {
@@ -1642,7 +1652,10 @@ app.patch('/api/users/:userId/active', async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET);
         requesterId = decoded.userId;
     } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        return res.status(500).json({ error: `Server authentication error (PATCH /api/users/active): ${err.message}` });
     }
 
     try {
@@ -1717,7 +1730,10 @@ app.post('/api/users/:userId/reset-password', async (req, res) => {
         const decoded = jwt.verify(tokenFromReq, JWT_SECRET);
         requesterId = decoded.userId;
     } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+        if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        return res.status(500).json({ error: `Server authentication error (POST /api/users/reset-password): ${err.message}` });
     }
 
     try {
