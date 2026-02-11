@@ -224,7 +224,13 @@ export default function Dashboard() {
             setAgents([]);
             setTotalPages(1);
             setTotalAgents(0);
-            if (err.response && err.response.status === 401) navigate('/login');
+            if (err.response && err.response.status === 401) {
+                const errorMessage = err.response?.data?.error || err.response?.data?.message || '';
+                const isTokenIssue = errorMessage.toLowerCase().includes('token') ||
+                    errorMessage.toLowerCase().includes('expired') ||
+                    errorMessage.toLowerCase().includes('requester not found');
+                if (isTokenIssue) navigate('/login');
+            }
         } finally {
             setLoading(false);
         }

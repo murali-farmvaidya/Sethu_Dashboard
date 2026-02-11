@@ -60,7 +60,11 @@ export const AuthProvider = ({ children }) => {
                 } catch (error) {
                     console.error('Deactivation check failed:', error);
                     if (error.response?.status === 401) {
-                        logout();
+                        const errorMessage = error.response?.data?.error || error.response?.data?.message || '';
+                        const isTokenIssue = errorMessage.toLowerCase().includes('token') ||
+                            errorMessage.toLowerCase().includes('expired') ||
+                            errorMessage.toLowerCase().includes('requester not found');
+                        if (isTokenIssue) logout();
                     }
                 }
             }, 5000); // Check every 5 seconds

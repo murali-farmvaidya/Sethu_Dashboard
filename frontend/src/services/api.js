@@ -23,11 +23,19 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
+        const errorMessage = error.response?.data?.error || error.response?.data?.message || '';
+        const isTokenIssue = errorMessage.toLowerCase().includes('token') ||
+            errorMessage.toLowerCase().includes('expired') ||
+            errorMessage.toLowerCase().includes('requester not found');
+
+        if (error.response?.status === 401 && isTokenIssue) {
+            console.warn('🔒 Session expired or invalid. Logging out...', errorMessage);
             localStorage.removeItem('token');
             if (!window.location.pathname.includes('/login')) {
                 window.location.href = '/login';
             }
+        } else if (error.response?.status === 401) {
+            console.log('⚠️ 401 error suppressed from auto-logout:', errorMessage);
         }
         return Promise.reject(error);
     }
