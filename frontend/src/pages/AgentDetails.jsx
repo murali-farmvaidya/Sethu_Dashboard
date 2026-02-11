@@ -85,12 +85,27 @@ export default function AgentDetails() {
 
     const handleSendCall = async () => {
         try {
-            await api.post('/api/telephony/call', {
+            // Support multiple numbers separated by newline or comma
+            const numbers = callForm.receiverNumber.split(/[\n,]+/).map(n => n.trim()).filter(n => n);
+
+            if (numbers.length === 0) {
+                alert('Please enter at least one phone number.');
+                return;
+            }
+
+            const res = await api.post('/api/telephony/call', {
                 agentId,
-                receiverNumber: callForm.receiverNumber,
-                receiverName: callForm.receiverName
+                receiverNumber: numbers, // Send as Array
+                receiverName: [] // Name field removed from UI
             });
-            alert('Call initiated successfully! The receiver should get a call shortly.');
+
+            if (res.data.bulk) {
+                const s = res.data.summary;
+                alert(`Bulk Call Initiated!\nTotal: ${s.total}\nSuccess: ${s.success}\nFailed: ${s.failed}`);
+            } else {
+                alert('Call initiated successfully!');
+            }
+
             setShowCallModal(false);
             setCallForm({ receiverNumber: '', receiverName: '' });
         } catch (err) {
@@ -662,7 +677,18 @@ export default function AgentDetails() {
                 {/* Main Content - Sessions List */}
                 <main className="dashboard-main" style={{ padding: '0', background: '#f5f7fa', height: '100vh', overflowY: 'auto' }}>
                     <div className="dashboard-header-title" style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h1>Agent Sessions</h1>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                            <button
+                                onClick={() => navigate('/')}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#64748b', padding: '5px', borderRadius: '50%', transition: 'background 0.2s' }}
+                                onMouseOver={(e) => e.currentTarget.style.background = '#e2e8f0'}
+                                onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                                title="Back to Dashboard"
+                            >
+                                <ArrowLeft size={24} />
+                            </button>
+                            <h1>Agent Sessions</h1>
+                        </div>
                         {user?.id === 'master_root_0' && (
                             <button
                                 onClick={() => setShowHiddenSessions(!showHiddenSessions)}
@@ -1105,24 +1131,15 @@ export default function AgentDetails() {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                             <div>
-                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '0.9rem' }}>Receiver Name</label>
-                                <input
-                                    type="text"
-                                    value={callForm.receiverName}
-                                    onChange={e => setCallForm({ ...callForm, receiverName: e.target.value })}
-                                    placeholder="Enter name for greeting"
-                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                                />
-                            </div>
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '0.9rem' }}>Receiver Phone Number</label>
-                                <input
-                                    type="text"
+                                <label style={{ display: 'block', marginBottom: '5px', fontWeight: '500', fontSize: '0.9rem' }}>Receiver Phone Number(s)</label>
+                                <textarea
                                     value={callForm.receiverNumber}
                                     onChange={e => setCallForm({ ...callForm, receiverNumber: e.target.value })}
-                                    placeholder="e.g. 9876543210"
-                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                    placeholder={'Enter numbers separated by comma or new line e.g.\n9876543210\n9988776655'}
+                                    rows={5}
+                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontFamily: 'inherit', resize: 'vertical' }}
                                 />
+                                <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>To call multiple users, verify numbers are correct.</p>
                             </div>
                             <button
                                 onClick={handleSendCall}

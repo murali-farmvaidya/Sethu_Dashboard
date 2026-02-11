@@ -2695,20 +2695,23 @@ app.get('/api/telephony/exoml', (req, res) => {
     res.send(exoml);
 });
 
-// Trigger Call
+// Trigger Call (Single or Bulk)
 app.post('/api/telephony/call', async (req, res) => {
     const authHeader = req.headers.authorization;
     if (!authHeader) return res.status(401).json({ error: 'No token' });
     try {
         const { agentId, receiverNumber, receiverName } = req.body;
-        if (!agentId || !receiverNumber) return res.status(400).json({ error: 'Missing call details' });
+        // Verify input: receiverNumber can be string or array of strings
+        if (!agentId || !receiverNumber || (Array.isArray(receiverNumber) && receiverNumber.length === 0)) {
+            return res.status(400).json({ error: 'Missing call details' });
+        }
 
         // 1. Get Config
         const configResult = await pool.query(`SELECT * FROM "${getTableName('Agent_Telephony_Config')}" WHERE agent_id = $1`, [agentId]);
         const config = configResult.rows[0];
 
         if (!config) {
-            return res.status(400).json({ error: 'Telephony not configured. Please contact an admin to map Exophone/AppID.' });
+            return res.status(400).json({ error: `Telephony not configured for agent ${agentId}. Please contact an admin to map Exophone/AppID.` });
         }
 
         // 2. Prepare Exotel
@@ -2721,34 +2724,54 @@ app.post('/api/telephony/call', async (req, res) => {
 
         const url = `https://${subdomain}/v1/Accounts/${accountSid}/Calls/connect.json`;
         const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
-
-        // 3. Always use Direct Exotel Flow URL
-        // NOTE: Dynamic greeting via SERVER_PUBLIC_URL was disabled because Exotel
-        // cannot reach the server externally (firewall/SSL/nginx), causing instant call drops.
-        // The receiver name is still passed via CustomField for the Exotel flow to use.
         const finalUrl = `https://my.exotel.com/${accountSid}/exoml/start_voice/${app_id}`;
 
         console.log(`Using Exotel Flow URL: ${finalUrl}`);
 
-        // Exotel expects x-www-form-urlencoded
-        const params = new URLSearchParams();
-        params.append('From', receiverNumber); // Customer Number
-        params.append('CallerId', exophone); // Virtual Number
-        params.append('Url', finalUrl); // Flow URL
-        if (receiverName) {
-            params.append('CustomField', receiverName);
+        // Helper function to make a single call
+        const initiateSingleCall = async (number, name) => {
+            const params = new URLSearchParams();
+            params.append('From', number); // Customer Number
+            params.append('CallerId', exophone); // Virtual Number
+            params.append('Url', finalUrl); // Flow URL
+            if (name) params.append('CustomField', name);
+
+            console.log(`📞 Initiating call to ${number} via ${exophone}`);
+            return axios.post(url, params, {
+                headers: {
+                    'Authorization': `Basic ${auth}`,
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }
+            });
+        };
+
+        // 3. Execute Calls (Single or Bulk)
+        const numbers = Array.isArray(receiverNumber) ? receiverNumber : [receiverNumber];
+        const names = Array.isArray(receiverName) ? receiverName : [receiverName]; // Handle names array if provided
+
+        if (numbers.length === 1) {
+            // Single Call (Maintain legacy response format for compatibility)
+            const response = await initiateSingleCall(numbers[0], names[0]);
+            return res.json({ success: true, data: response.data });
+        } else {
+            // Bulk Call
+            console.log(`🚀 Starting Bulk Call for ${numbers.length} numbers...`);
+            const results = await Promise.allSettled(numbers.map((num, idx) => initiateSingleCall(num, names[idx] || '')));
+
+            const summary = {
+                total: numbers.length,
+                success: results.filter(r => r.status === 'fulfilled').length,
+                failed: results.filter(r => r.status === 'rejected').length,
+                details: results.map((r, i) => ({
+                    number: numbers[i],
+                    status: r.status === 'fulfilled' ? 'success' : 'failed',
+                    error: r.status === 'rejected' ? (r.reason.response?.data?.RestException?.Message || r.reason.message) : null
+                }))
+            };
+
+            return res.json({ success: true, bulk: true, summary });
         }
 
-        console.log(`📞 Initiating call via Exotel for Agent ${agentId} to ${receiverNumber} via ${exophone}`);
-
-        const response = await axios.post(url, params, {
-            headers: {
-                'Authorization': `Basic ${auth}`,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            }
-        });
-
-        res.json({ success: true, data: response.data });
     } catch (err) {
         console.error('❌ Exotel Call Failed:', err.response?.data || err.message);
         res.status(500).json({

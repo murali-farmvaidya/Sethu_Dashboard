@@ -285,8 +285,20 @@ export default function SessionDetails() {
                     <div className="dashboard-header-title" style={{
                         padding: '2rem 2rem 0 2rem',
                         marginBottom: '1rem',
-                        background: 'white'
+                        background: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '15px'
                     }}>
+                        <button
+                            onClick={() => navigate(-1)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#64748b', padding: '5px', borderRadius: '50%', transition: 'background 0.2s' }}
+                            onMouseOver={(e) => e.currentTarget.style.background = '#e2e8f0'}
+                            onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                            title="Go Back"
+                        >
+                            <ArrowLeft size={24} />
+                        </button>
                         <h1>Conversation Logs</h1>
                     </div>
 
