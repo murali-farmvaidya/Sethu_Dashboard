@@ -39,3 +39,6 @@ Thumbs.db
 # Database
 *.sqlite
 *.db
+
+
+campaign_contacts_sample.csv

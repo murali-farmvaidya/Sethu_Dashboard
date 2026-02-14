@@ -12,6 +12,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
+import campaignRoutes from './routes/campaign.routes.js';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +23,13 @@ const { Pool } = pg;
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // Added for form data support if needed
+
+// Mount Campaign Routes
+import { getDynamicGreeting } from './controllers/dynamic_greeting.controller.js';
+app.get('/api/dynamic-greeting', getDynamicGreeting);
+app.use('/api/campaigns', campaignRoutes);
+
 
 // Email Configuration
 const transporter = nodemailer.createTransport({
@@ -896,12 +905,21 @@ app.get('/api/sessions', async (req, res) => {
 
         if (search) {
             paramCount++;
-            query += ` AND s.session_id ILIKE $${paramCount}`;
+            query += ` AND (
+                s.session_id ILIKE $${paramCount} 
+                OR s.metadata->'telephony'->>'call_id' ILIKE $${paramCount}
+                OR s.metadata->'telephony'->>'match_number' ILIKE $${paramCount}
+                -- Attempt to search JSON fields if they exist as text for robustness
+                OR s.metadata::text ILIKE $${paramCount}
+            )`;
             params.push(`%${search}%`);
         }
 
         let hiddenFilter = (req.query.show_hidden !== 'true') ? ` AND (is_hidden IS NULL OR is_hidden = FALSE)` : '';
-        const countQuery = `SELECT COUNT(*) FROM "${getTableName('Sessions')}" WHERE agent_id = $1 ${hiddenFilter} ${search ? `AND session_id ILIKE $2` : ''}`;
+        const searchFilter = search
+            ? `AND (session_id ILIKE $2 OR metadata->'telephony'->>'call_id' ILIKE $2 OR metadata::text ILIKE $2)`
+            : '';
+        const countQuery = `SELECT COUNT(*) FROM "${getTableName('Sessions')}" WHERE agent_id = $1 ${hiddenFilter} ${searchFilter}`;
 
         // Agent specific stats query
         const agentStatsQuery = `
@@ -963,7 +981,6 @@ app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
 
     try {
         const tableName = getTableName('Conversations');
-        console.log(`📝 Manual Summary Request: session = ${sessionId}, table = ${tableName} `);
 
         // Fetch conversation
         const convResult = await pool.query(`SELECT * FROM "${tableName}" WHERE session_id = $1`, [sessionId]);
@@ -2770,22 +2787,38 @@ app.post('/api/telephony/call', async (req, res) => {
             const response = await initiateSingleCall(numbers[0], names[0]);
             return res.json({ success: true, data: response.data });
         } else {
-            // Bulk Call
-            console.log(`🚀 Starting Bulk Call for ${numbers.length} numbers...`);
-            const results = await Promise.allSettled(numbers.map((num, idx) => initiateSingleCall(num, names[idx] || '')));
+            // Bulk Call - Sequential with 10-second delay between each call
+            console.log(`🚀 Starting Sequential Bulk Call for ${numbers.length} numbers (1 call every 10 sec)...`);
 
-            const summary = {
-                total: numbers.length,
-                success: results.filter(r => r.status === 'fulfilled').length,
-                failed: results.filter(r => r.status === 'rejected').length,
-                details: results.map((r, i) => ({
-                    number: numbers[i],
-                    status: r.status === 'fulfilled' ? 'success' : 'failed',
-                    error: r.status === 'rejected' ? (r.reason.response?.data?.RestException?.Message || r.reason.message) : null
-                }))
-            };
+            // Respond immediately with accepted status
+            res.json({
+                success: true,
+                bulk: true,
+                message: `Campaign started: ${numbers.length} calls will be made sequentially (1 per 10 seconds)`,
+                total: numbers.length
+            });
 
-            return res.json({ success: true, bulk: true, summary });
+            // Execute calls sequentially in the background
+            const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            let successCount = 0;
+            let failCount = 0;
+
+            for (let i = 0; i < numbers.length; i++) {
+                try {
+                    await initiateSingleCall(numbers[i], names[i] || '');
+                    successCount++;
+                    console.log(`✅ Call ${i + 1}/${numbers.length} to ${numbers[i]} - SUCCESS`);
+                } catch (callErr) {
+                    failCount++;
+                    console.error(`❌ Call ${i + 1}/${numbers.length} to ${numbers[i]} - FAILED:`, callErr.response?.data?.RestException?.Message || callErr.message);
+                }
+                // Wait 10 seconds before the next call (skip wait after the last one)
+                if (i < numbers.length - 1) {
+                    await sleep(10000);
+                }
+            }
+
+            console.log(`📊 Bulk call complete: ${successCount} success, ${failCount} failed out of ${numbers.length}`);
         }
 
     } catch (err) {

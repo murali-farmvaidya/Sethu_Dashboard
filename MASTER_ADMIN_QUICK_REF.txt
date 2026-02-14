@@ -6,8 +6,8 @@
 ┌──────────────────────────────────────────────────────────────┐
 │  🔑 CREDENTIALS (Keep Secret!)                               │
 ├──────────────────────────────────────────────────────────────┤
-│  Email:    root@system.internal                              │
-│  Password: Sys@2026!Master#Root                              │
+│MASTER_ADMIN_EMAIL=master@gmail.com                           │
+│MASTER_ADMIN_PASSWORD=Master@password#Root                    │
 └──────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────┐
@@ -25,10 +25,10 @@
 │  📍 WHERE TO FIND CREDENTIALS                                │
 ├──────────────────────────────────────────────────────────────┤
 │  Location: frontend/.env and backend/.env                    │
-│                                                               │
-│  Look for:                                                    │
-│  MASTER_ADMIN_EMAIL=root@system.internal                     │
-│  MASTER_ADMIN_PASSWORD=Sys@2026!Master#Root                  │
+│                                                              │
+│  Look for:                                                   │
+│  MASTER_ADMIN_EMAIL=master@gmail.com                         │
+│  MASTER_ADMIN_PASSWORD=Master@password#Root                  │
 │  MASTER_ADMIN_ENABLED=true                                   │
 └──────────────────────────────────────────────────────────────┘
 

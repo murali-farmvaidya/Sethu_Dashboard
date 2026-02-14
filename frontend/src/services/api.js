@@ -94,4 +94,18 @@ export const authAPI = {
     resetPasswordWithToken: (token, newPassword) => api.post('/api/reset-password-token', { token, newPassword })
 };
 
+export const campaignAPI = {
+    getAllCampaigns: () => api.get('/api/campaigns'),
+    getCampaignCallDetails: (campaignId) => api.get(`/api/campaigns/${campaignId}/calls`),
+    createCampaign: (formData) => api.post('/api/campaigns', formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    }),
+    deleteCampaign: (campaignId) => api.delete(`/api/campaigns/${campaignId}`),
+    stopCampaign: (campaignId) => api.post(`/api/campaigns/${campaignId}/stop`),
+    resumeCampaign: (campaignId) => api.post(`/api/campaigns/${campaignId}/resume`),
+};
+
+
 export default api;

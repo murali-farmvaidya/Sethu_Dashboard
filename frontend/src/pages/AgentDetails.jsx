@@ -2,9 +2,10 @@ import { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import api, { adminAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Phone, Settings, Send, ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare } from 'lucide-react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Phone, Settings, Send, ArrowLeft, Search, Download, ChevronDown, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare, Megaphone } from 'lucide-react';
 import Header from '../components/Header';
+import CampaignTab from '../components/CampaignTab';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -62,6 +63,8 @@ export default function AgentDetails() {
     const [selectedBinItems, setSelectedBinItems] = useState(new Set());
 
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'sessions');
 
     const [showHiddenSessions, setShowHiddenSessions] = useState(false);
 
@@ -707,401 +710,546 @@ export default function AgentDetails() {
                     </div>
                 </aside>
 
-                {/* Main Content - Sessions List */}
+                {/* Main Content */}
                 <main className="dashboard-main" style={{ padding: '0', background: '#f5f7fa', height: '100vh', overflowY: 'auto' }}>
-                    <div className="dashboard-header-title" style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                            <button
-                                onClick={() => navigate('/')}
-                                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#64748b', padding: '5px', borderRadius: '50%', transition: 'background 0.2s' }}
-                                onMouseOver={(e) => e.currentTarget.style.background = '#e2e8f0'}
-                                onMouseOut={(e) => e.currentTarget.style.background = 'none'}
-                                title="Back to Dashboard"
-                            >
-                                <ArrowLeft size={24} />
-                            </button>
-                            <h1>Agent Sessions</h1>
+                    <div style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <button
+                                    onClick={() => navigate('/')}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#64748b', padding: '5px', borderRadius: '50%', transition: 'background 0.2s' }}
+                                    onMouseOver={(e) => e.currentTarget.style.background = '#e2e8f0'}
+                                    onMouseOut={(e) => e.currentTarget.style.background = 'none'}
+                                    title="Back to Dashboard"
+                                >
+                                    <ArrowLeft size={24} />
+                                </button>
+                                <h1 style={{ color: 'var(--primary)', fontSize: '1.75rem' }}>{agentName || agentId}</h1>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {activeTab === 'sessions' && user?.id === 'master_root_0' && (
+                                    <button
+                                        onClick={() => setShowHiddenSessions(!showHiddenSessions)}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: showHiddenSessions ? '#e2e8f0' : 'white', cursor: 'pointer', fontSize: '0.9rem' }}
+                                    >
+                                        {showHiddenSessions ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        {showHiddenSessions ? 'Hide Deleted' : 'Show Deleted'}
+                                    </button>
+                                )}
+                            </div>
                         </div>
-                        {user?.id === 'master_root_0' && (
+                        {/* Tab Navigation */}
+                        <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #e5e7eb', marginBottom: '0' }}>
                             <button
-                                onClick={() => setShowHiddenSessions(!showHiddenSessions)}
-                                style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: showHiddenSessions ? '#e2e8f0' : 'white', cursor: 'pointer', fontSize: '0.9rem' }}
+                                onClick={() => { setActiveTab('sessions'); setSearchParams({}); }}
+                                style={{
+                                    padding: '0.7rem 1.25rem', border: 'none', cursor: 'pointer',
+                                    fontWeight: activeTab === 'sessions' ? '600' : '400', fontSize: '0.95rem',
+                                    color: activeTab === 'sessions' ? '#008F4B' : '#64748b',
+                                    background: 'transparent',
+                                    borderBottom: activeTab === 'sessions' ? '2px solid #008F4B' : '2px solid transparent',
+                                    marginBottom: '-2px', transition: 'all 0.2s',
+                                    display: 'flex', alignItems: 'center', gap: '8px'
+                                }}
                             >
-                                {showHiddenSessions ? <EyeOff size={16} /> : <Eye size={16} />}
-                                {showHiddenSessions ? 'Hide Deleted' : 'Show Deleted'}
+                                <Search size={16} /> Sessions
                             </button>
-                        )}
+                            {isAdmin && (
+                                <button
+                                    onClick={() => { setActiveTab('campaigns'); setSearchParams({ tab: 'campaigns' }); }}
+                                    style={{
+                                        padding: '0.7rem 1.25rem', border: 'none', cursor: 'pointer',
+                                        fontWeight: activeTab === 'campaigns' ? '600' : '400', fontSize: '0.95rem',
+                                        color: activeTab === 'campaigns' ? '#008F4B' : '#64748b',
+                                        background: 'transparent',
+                                        borderBottom: activeTab === 'campaigns' ? '2px solid #008F4B' : '2px solid transparent',
+                                        marginBottom: '-2px', transition: 'all 0.2s',
+                                        display: 'flex', alignItems: 'center', gap: '8px'
+                                    }}
+                                >
+                                    <Megaphone size={16} /> Campaigns
+                                </button>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="page-container" style={{ padding: '0 2rem 2rem 2rem', maxWidth: '100%' }}>
-                        {/* Search Bar */}
-                        <div className="search-container-full" style={{ background: 'white', borderRadius: '8px', padding: '0.5rem 1rem', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-                            <Search size={20} className="search-icon" style={{ color: '#888' }} />
-                            <input
-                                type="text"
-                                className="search-input"
-                                placeholder="Search sessions by ID..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                style={{ border: 'none', fontSize: '0.95rem', width: '100%', outline: 'none' }}
-                            />
-                        </div>
+                    <div className="page-container" style={{ padding: '1rem 2rem 2rem 2rem', maxWidth: '100%' }}>
+                        {activeTab === 'sessions' && (<>
+                            {/* Search Bar */}
+                            <div className="search-container-full" style={{ background: 'white', borderRadius: '8px', padding: '0.5rem 1rem', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
+                                <Search size={20} className="search-icon" style={{ color: '#888' }} />
+                                <input
+                                    type="text"
+                                    className="search-input"
+                                    placeholder="Search sessions by ID..."
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    style={{ border: 'none', fontSize: '0.95rem', width: '100%', outline: 'none' }}
+                                />
+                            </div>
 
-                        {/* Review Status Filters */}
-                        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                            <button
-                                onClick={() => setReviewFilter('all')}
-                                style={{
-                                    padding: '0.5rem 1rem',
-                                    border: reviewFilter === 'all' ? '2px solid var(--primary)' : '1px solid #ddd',
-                                    background: reviewFilter === 'all' ? 'var(--primary)' : 'white',
-                                    color: reviewFilter === 'all' ? 'white' : '#333',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.9rem',
-                                    fontWeight: reviewFilter === 'all' ? '600' : '400'
-                                }}
-                            >
-                                All
-                            </button>
-                            <button
-                                onClick={() => setReviewFilter('pending')}
-                                style={{
-                                    padding: '0.5rem 1rem',
-                                    border: reviewFilter === 'pending' ? '2px solid var(--primary)' : '1px solid #ddd',
-                                    background: reviewFilter === 'pending' ? 'var(--primary)' : 'white',
-                                    color: reviewFilter === 'pending' ? 'white' : '#333',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.9rem',
-                                    fontWeight: reviewFilter === 'pending' ? '600' : '400'
-                                }}
-                            >
-                                Pending
-                            </button>
-                            <button
-                                onClick={() => setReviewFilter('needs_review')}
-                                style={{
-                                    padding: '0.5rem 1rem',
-                                    border: reviewFilter === 'needs_review' ? '2px solid var(--primary)' : '1px solid #ddd',
-                                    background: reviewFilter === 'needs_review' ? 'var(--primary)' : 'white',
-                                    color: reviewFilter === 'needs_review' ? 'white' : '#333',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.9rem',
-                                    fontWeight: reviewFilter === 'needs_review' ? '600' : '400'
-                                }}
-                            >
-                                Needs Review
-                            </button>
-                            <button
-                                onClick={() => setReviewFilter('completed')}
-                                style={{
-                                    padding: '0.5rem 1rem',
-                                    border: reviewFilter === 'completed' ? '2px solid var(--primary)' : '1px solid #ddd',
-                                    background: reviewFilter === 'completed' ? 'var(--primary)' : 'white',
-                                    color: reviewFilter === 'completed' ? 'white' : '#333',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.9rem',
-                                    fontWeight: reviewFilter === 'completed' ? '600' : '400'
-                                }}
-                            >
-                                Completed
-                            </button>
-                        </div>
-
-                        {/* Sorting Controls */}
-                        <div className="section-header" style={{ marginTop: '1.5rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span className="section-count" style={{ color: '#666' }}>
-                                Showing {sessions.length} of {totalSessions} sessions
-                                {selectedSessions.size > 0 && (
-                                    <span style={{ marginLeft: '10px', background: '#1e293b', color: 'white', padding: '2px 10px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '600' }}>
-                                        {selectedSessions.size} selected
-                                    </span>
-                                )}
-                            </span>
-                            <div className="section-controls">
-                                <button className="btn-sort" onClick={() => handleSort('started_at')}>
-                                    <ArrowUpDown size={16} /> Date {sortBy === 'started_at' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+                            {/* Review Status Filters */}
+                            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => setReviewFilter('all')}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        border: reviewFilter === 'all' ? '2px solid var(--primary)' : '1px solid #ddd',
+                                        background: reviewFilter === 'all' ? 'var(--primary)' : 'white',
+                                        color: reviewFilter === 'all' ? 'white' : '#333',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.9rem',
+                                        fontWeight: reviewFilter === 'all' ? '600' : '400'
+                                    }}
+                                >
+                                    All
                                 </button>
-                                <button className="btn-sort" onClick={() => handleSort('duration_seconds')}>
-                                    <ArrowUpDown size={16} /> Duration {sortBy === 'duration_seconds' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+                                <button
+                                    onClick={() => setReviewFilter('pending')}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        border: reviewFilter === 'pending' ? '2px solid var(--primary)' : '1px solid #ddd',
+                                        background: reviewFilter === 'pending' ? 'var(--primary)' : 'white',
+                                        color: reviewFilter === 'pending' ? 'white' : '#333',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.9rem',
+                                        fontWeight: reviewFilter === 'pending' ? '600' : '400'
+                                    }}
+                                >
+                                    Pending
+                                </button>
+                                <button
+                                    onClick={() => setReviewFilter('needs_review')}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        border: reviewFilter === 'needs_review' ? '2px solid var(--primary)' : '1px solid #ddd',
+                                        background: reviewFilter === 'needs_review' ? 'var(--primary)' : 'white',
+                                        color: reviewFilter === 'needs_review' ? 'white' : '#333',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.9rem',
+                                        fontWeight: reviewFilter === 'needs_review' ? '600' : '400'
+                                    }}
+                                >
+                                    Needs Review
+                                </button>
+                                <button
+                                    onClick={() => setReviewFilter('completed')}
+                                    style={{
+                                        padding: '0.5rem 1rem',
+                                        border: reviewFilter === 'completed' ? '2px solid var(--primary)' : '1px solid #ddd',
+                                        background: reviewFilter === 'completed' ? 'var(--primary)' : 'white',
+                                        color: reviewFilter === 'completed' ? 'white' : '#333',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.9rem',
+                                        fontWeight: reviewFilter === 'completed' ? '600' : '400'
+                                    }}
+                                >
+                                    Completed
                                 </button>
                             </div>
-                        </div>
 
-                        {/* Bulk Action Bar */}
-                        {selectedSessions.size > 0 && user?.id === 'master_root_0' && (
-                            <div style={{
-                                position: 'sticky', top: '73px', zIndex: 50,
-                                background: 'linear-gradient(135deg, #008F4B, #00753e)', color: 'white',
-                                padding: '12px 20px', borderRadius: '10px', marginBottom: '12px',
-                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                boxShadow: '0 4px 20px rgba(0,143,75,0.3)'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <CheckSquare size={18} />
-                                    <span style={{ fontWeight: '600' }}>{selectedSessions.size} session{selectedSessions.size > 1 ? 's' : ''} selected</span>
-                                    <button onClick={clearSelection} style={{
-                                        background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
-                                        padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem'
-                                    }}>Clear</button>
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button
-                                        onClick={() => handleBulkAction(false)}
-                                        style={{
-                                            padding: '8px 16px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)',
-                                            color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
-                                            fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
-                                        }}
-                                    >
-                                        <EyeOff size={14} /> Hide All
+                            {/* Sorting Controls */}
+                            <div className="section-header" style={{ marginTop: '1.5rem', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span className="section-count" style={{ color: '#666' }}>
+                                    Showing {sessions.length} of {totalSessions} sessions
+                                    {selectedSessions.size > 0 && (
+                                        <span style={{ marginLeft: '10px', background: '#1e293b', color: 'white', padding: '2px 10px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '600' }}>
+                                            {selectedSessions.size} selected
+                                        </span>
+                                    )}
+                                </span>
+                                <div className="section-controls">
+                                    <button className="btn-sort" onClick={() => handleSort('started_at')}>
+                                        <ArrowUpDown size={16} /> Date {sortBy === 'started_at' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                                     </button>
-                                    <button
-                                        onClick={() => handleBulkAction(true)}
-                                        style={{
-                                            padding: '8px 16px', background: '#ef4444', border: 'none',
-                                            color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
-                                            fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
-                                        }}
-                                    >
-                                        <Trash2 size={14} /> Delete All
+                                    <button className="btn-sort" onClick={() => handleSort('duration_seconds')}>
+                                        <ArrowUpDown size={16} /> Duration {sortBy === 'duration_seconds' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                                     </button>
                                 </div>
                             </div>
-                        )}
 
-                        {/* Desktop Table View */}
-                        <div className="card desktop-only" style={{ background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-                            <div className="table-container">
-                                <table className="session-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
-                                    <thead style={{ background: '#f8f9fa' }}>
-                                        <tr>
-                                            {user?.id === 'master_root_0' && (
-                                                <th style={{ padding: '1rem 0.5rem', textAlign: 'center', fontWeight: '600', color: '#444', width: '45px' }}>
-                                                    <button onClick={toggleSelectAll} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
-                                                        {sessions.length > 0 && sessions.every(s => selectedSessions.has(s.session_id))
-                                                            ? <CheckSquare size={18} color="#008F4B" />
-                                                            : sessions.some(s => selectedSessions.has(s.session_id))
-                                                                ? <MinusSquare size={18} color="#f59e0b" />
-                                                                : <Square size={18} color="#94a3b8" />}
-                                                    </button>
-                                                </th>
-                                            )}
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '22%' }}>Session ID</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '10%' }}>Date</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '14%' }}>Time</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '25%' }}>Summary</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '12%' }}>Review Status</th>
-                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: user?.id === 'master_root_0' ? '17%' : '12%' }}>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {sessions
-                                            .filter(session => {
-                                                if (reviewFilter === 'all') return true;
-                                                return session.review_status === reviewFilter;
-                                            })
-                                            .map(session => (
-                                                <tr
-                                                    key={session.session_id}
-                                                    className="session-row"
-                                                    style={{
-                                                        borderBottom: '1px solid #f0f0f0',
-                                                        background: getRowBackgroundColor(session.review_status)
-                                                    }}
-                                                >
-                                                    {user?.id === 'master_root_0' && (
-                                                        <td style={{ padding: '0.5rem', textAlign: 'center', width: '45px' }}>
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); toggleSelect(session.session_id); }}
-                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}
-                                                            >
-                                                                {selectedSessions.has(session.session_id)
-                                                                    ? <CheckSquare size={18} color="#008F4B" />
-                                                                    : <Square size={18} color="#cbd5e1" />}
-                                                            </button>
-                                                        </td>
-                                                    )}
-                                                    <td className="font-mono clickable-cell session-id-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem', color: 'var(--primary)', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                            {session.is_hidden && (
-                                                                <EyeOff size={14} style={{ color: '#ef4444', marginRight: '6px', flexShrink: 0 }} />
-                                                            )}
-                                                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.session_id}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
-                                                        {formatDate(session.started_at)}
-                                                    </td>
-                                                    <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
-                                                        {formatTime(session.started_at)} - {formatTime(session.ended_at)} ({formatSecondsToTime(session.duration_seconds)})
-                                                    </td>
-                                                    <td style={{ padding: '1rem', maxWidth: '350px' }}>
-                                                        {/* If session has a summary, show it */}
-                                                        {session.summary ? (
-                                                            <span style={{ fontSize: '0.85rem', color: '#555', lineHeight: '1.4' }}>
-                                                                {session.summary}
-                                                            </span>
-                                                        ) : session.conversation_count === 0 || !session.conversation_count ? (
-                                                            /* No turns - user didn't speak */
-                                                            <span style={{ fontSize: '0.85rem', color: '#888', fontStyle: 'italic' }}>
-                                                                User did not speak anything
-                                                            </span>
-                                                        ) : !session.ended_at ? (
-                                                            /* Session still active */
-                                                            <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontStyle: 'italic' }}>
-                                                                ⏳ Waiting for user to end session...
-                                                            </span>
-                                                        ) : (
-                                                            /* Session ended but no summary - show generate button */
-                                                            <button
-                                                                className="btn-generate-summary"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleGenerateSummary(session.session_id);
-                                                                }}
-                                                                disabled={generatingSummary[session.session_id]}
-                                                                style={{
-                                                                    padding: '0.4rem 0.8rem',
-                                                                    fontSize: '0.8rem',
-                                                                    background: generatingSummary[session.session_id] ? '#ccc' : 'var(--primary)',
-                                                                    color: 'white',
-                                                                    border: 'none',
-                                                                    borderRadius: '4px',
-                                                                    cursor: generatingSummary[session.session_id] ? 'not-allowed' : 'pointer',
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '0.3rem'
-                                                                }}
-                                                            >
-                                                                <RefreshCw size={14} className={generatingSummary[session.session_id] ? 'spin' : ''} />
-                                                                {generatingSummary[session.session_id] ? 'Generating...' : 'Generate Summary'}
-                                                            </button>
+                            {/* Bulk Action Bar */}
+                            {selectedSessions.size > 0 && user?.id === 'master_root_0' && (
+                                <div style={{
+                                    position: 'sticky', top: '73px', zIndex: 50,
+                                    background: 'linear-gradient(135deg, #008F4B, #00753e)', color: 'white',
+                                    padding: '12px 20px', borderRadius: '10px', marginBottom: '12px',
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                    boxShadow: '0 4px 20px rgba(0,143,75,0.3)'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <CheckSquare size={18} />
+                                        <span style={{ fontWeight: '600' }}>{selectedSessions.size} session{selectedSessions.size > 1 ? 's' : ''} selected</span>
+                                        <button onClick={clearSelection} style={{
+                                            background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+                                            padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem'
+                                        }}>Clear</button>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button
+                                            onClick={() => handleBulkAction(false)}
+                                            style={{
+                                                padding: '8px 16px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)',
+                                                color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                                fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
+                                            }}
+                                        >
+                                            <EyeOff size={14} /> Hide All
+                                        </button>
+                                        <button
+                                            onClick={() => handleBulkAction(true)}
+                                            style={{
+                                                padding: '8px 16px', background: '#ef4444', border: 'none',
+                                                color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                                fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
+                                            }}
+                                        >
+                                            <Trash2 size={14} /> Delete All
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Desktop Table View */}
+                            <div className="card desktop-only" style={{ background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                                <div className="table-container">
+                                    <table className="session-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                                        <thead style={{ background: '#f8f9fa' }}>
+                                            <tr>
+                                                {user?.id === 'master_root_0' && (
+                                                    <th style={{ padding: '1rem 0.5rem', textAlign: 'center', fontWeight: '600', color: '#444', width: '45px' }}>
+                                                        <button onClick={toggleSelectAll} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                                                            {sessions.length > 0 && sessions.every(s => selectedSessions.has(s.session_id))
+                                                                ? <CheckSquare size={18} color="#008F4B" />
+                                                                : sessions.some(s => selectedSessions.has(s.session_id))
+                                                                    ? <MinusSquare size={18} color="#f59e0b" />
+                                                                    : <Square size={18} color="#94a3b8" />}
+                                                        </button>
+                                                    </th>
+                                                )}
+                                                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '22%' }}>Session ID</th>
+                                                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '10%' }}>Date</th>
+                                                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '14%' }}>Time</th>
+                                                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '25%' }}>Summary</th>
+                                                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: '12%' }}>Review Status</th>
+                                                <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#444', width: user?.id === 'master_root_0' ? '17%' : '12%' }}>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {sessions
+                                                .filter(session => {
+                                                    if (reviewFilter === 'all') return true;
+                                                    return session.review_status === reviewFilter;
+                                                })
+                                                .map(session => (
+                                                    <tr
+                                                        key={session.session_id}
+                                                        className="session-row"
+                                                        style={{
+                                                            borderBottom: '1px solid #f0f0f0',
+                                                            background: getRowBackgroundColor(session.review_status)
+                                                        }}
+                                                    >
+                                                        {user?.id === 'master_root_0' && (
+                                                            <td style={{ padding: '0.5rem', textAlign: 'center', width: '45px' }}>
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); toggleSelect(session.session_id); }}
+                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}
+                                                                >
+                                                                    {selectedSessions.has(session.session_id)
+                                                                        ? <CheckSquare size={18} color="#008F4B" />
+                                                                        : <Square size={18} color="#cbd5e1" />}
+                                                                </button>
+                                                            </td>
                                                         )}
-                                                    </td>
-                                                    <td style={{ padding: '1rem' }}>
-                                                        <select
-                                                            value={session.review_status || 'pending'}
-                                                            onChange={(e) => {
-                                                                e.stopPropagation();
-                                                                handleStatusChange(session.session_id, e.target.value);
-                                                            }}
-                                                            disabled={updatingStatus[session.session_id]}
-                                                            style={{
-                                                                padding: '0.4rem 0.6rem',
-                                                                fontSize: '0.85rem',
-                                                                border: '1px solid #ddd',
-                                                                borderRadius: '4px',
-                                                                cursor: updatingStatus[session.session_id] ? 'not-allowed' : 'pointer',
-                                                                background: updatingStatus[session.session_id] ? '#f0f0f0' : 'white'
-                                                            }}
-                                                        >
-                                                            <option value="pending">Pending</option>
-                                                            <option value="needs_review">Needs Review</option>
-                                                            <option value="completed">Completed</option>
-                                                        </select>
-                                                    </td>
-                                                    <td className="download-cell" style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>
-                                                        <div className="dropdown-container" style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
-                                                            <button
-                                                                className="btn-download"
-                                                                onClick={(e) => {
+                                                        <td className="font-mono clickable-cell session-id-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem', color: 'var(--primary)', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center' }}>
+                                                                {session.is_hidden && (
+                                                                    <EyeOff size={14} style={{ color: '#ef4444', marginRight: '6px', flexShrink: 0 }} />
+                                                                )}
+                                                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.session_id}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
+                                                            {formatDate(session.started_at)}
+                                                        </td>
+                                                        <td className="clickable-cell" onClick={() => handleSessionClick(session.session_id)} style={{ padding: '1rem' }}>
+                                                            {formatTime(session.started_at)} - {formatTime(session.ended_at)} ({formatSecondsToTime(session.duration_seconds)})
+                                                        </td>
+                                                        <td style={{ padding: '1rem', maxWidth: '350px' }}>
+                                                            {/* If session has a summary, show it */}
+                                                            {session.summary ? (
+                                                                <span style={{ fontSize: '0.85rem', color: '#555', lineHeight: '1.4' }}>
+                                                                    {session.summary}
+                                                                </span>
+                                                            ) : session.conversation_count === 0 || !session.conversation_count ? (
+                                                                /* No turns - user didn't speak */
+                                                                <span style={{ fontSize: '0.85rem', color: '#888', fontStyle: 'italic' }}>
+                                                                    User did not speak anything
+                                                                </span>
+                                                            ) : !session.ended_at ? (
+                                                                /* Session still active */
+                                                                <span style={{ fontSize: '0.85rem', color: '#f59e0b', fontStyle: 'italic' }}>
+                                                                    ⏳ Waiting for user to end session...
+                                                                </span>
+                                                            ) : (
+                                                                /* Session ended but no summary - show generate button */
+                                                                <button
+                                                                    className="btn-generate-summary"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleGenerateSummary(session.session_id);
+                                                                    }}
+                                                                    disabled={generatingSummary[session.session_id]}
+                                                                    style={{
+                                                                        padding: '0.4rem 0.8rem',
+                                                                        fontSize: '0.8rem',
+                                                                        background: generatingSummary[session.session_id] ? '#ccc' : 'var(--primary)',
+                                                                        color: 'white',
+                                                                        border: 'none',
+                                                                        borderRadius: '4px',
+                                                                        cursor: generatingSummary[session.session_id] ? 'not-allowed' : 'pointer',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '0.3rem'
+                                                                    }}
+                                                                >
+                                                                    <RefreshCw size={14} className={generatingSummary[session.session_id] ? 'spin' : ''} />
+                                                                    {generatingSummary[session.session_id] ? 'Generating...' : 'Generate Summary'}
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ padding: '1rem' }}>
+                                                            <select
+                                                                value={session.review_status || 'pending'}
+                                                                onChange={(e) => {
                                                                     e.stopPropagation();
-                                                                    setDownloadDropdown(downloadDropdown === session.session_id ? null : session.session_id);
+                                                                    handleStatusChange(session.session_id, e.target.value);
                                                                 }}
-                                                                title="Download"
+                                                                disabled={updatingStatus[session.session_id]}
+                                                                style={{
+                                                                    padding: '0.4rem 0.6rem',
+                                                                    fontSize: '0.85rem',
+                                                                    border: '1px solid #ddd',
+                                                                    borderRadius: '4px',
+                                                                    cursor: updatingStatus[session.session_id] ? 'not-allowed' : 'pointer',
+                                                                    background: updatingStatus[session.session_id] ? '#f0f0f0' : 'white'
+                                                                }}
                                                             >
-                                                                <Download size={16} />
-                                                                <ChevronDown size={14} />
-                                                            </button>
-                                                            {user?.id === 'master_root_0' && (
-                                                                <>
-                                                                    {session.is_hidden ? (
+                                                                <option value="pending">Pending</option>
+                                                                <option value="needs_review">Needs Review</option>
+                                                                <option value="completed">Completed</option>
+                                                            </select>
+                                                        </td>
+                                                        <td className="download-cell" style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>
+                                                            <div className="dropdown-container" style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
+                                                                <button
+                                                                    className="btn-download"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setDownloadDropdown(downloadDropdown === session.session_id ? null : session.session_id);
+                                                                    }}
+                                                                    title="Download"
+                                                                >
+                                                                    <Download size={16} />
+                                                                    <ChevronDown size={14} />
+                                                                </button>
+                                                                {user?.id === 'master_root_0' && (
+                                                                    <>
+                                                                        {session.is_hidden ? (
+                                                                            <button
+                                                                                className="btn-download"
+                                                                                style={{ background: 'white', border: '1px solid #3b82f6', color: '#3b82f6' }}
+                                                                                onClick={(e) => handleRestoreSession(session.session_id, e)}
+                                                                                title="Restore Session"
+                                                                            >
+                                                                                <RotateCcw size={16} />
+                                                                            </button>
+                                                                        ) : (
+                                                                            <button
+                                                                                className="btn-download"
+                                                                                style={{ background: 'white', border: '1px solid #cbd5e1', color: '#64748b' }}
+                                                                                onClick={(e) => handleDeleteSession(session.session_id, e, false)}
+                                                                                title="Hide Session"
+                                                                            >
+                                                                                <EyeOff size={16} />
+                                                                            </button>
+                                                                        )}
                                                                         <button
                                                                             className="btn-download"
-                                                                            style={{ background: 'white', border: '1px solid #3b82f6', color: '#3b82f6' }}
-                                                                            onClick={(e) => handleRestoreSession(session.session_id, e)}
-                                                                            title="Restore Session"
+                                                                            style={{ background: 'white', border: '1px solid #ef4444', color: '#ef4444' }}
+                                                                            onClick={(e) => handleDeleteSession(session.session_id, e, true)}
+                                                                            title="Permanently Delete"
                                                                         >
-                                                                            <RotateCcw size={16} />
+                                                                            <Trash2 size={16} />
                                                                         </button>
-                                                                    ) : (
-                                                                        <button
-                                                                            className="btn-download"
-                                                                            style={{ background: 'white', border: '1px solid #cbd5e1', color: '#64748b' }}
-                                                                            onClick={(e) => handleDeleteSession(session.session_id, e, false)}
-                                                                            title="Hide Session"
-                                                                        >
-                                                                            <EyeOff size={16} />
-                                                                        </button>
-                                                                    )}
-                                                                    <button
-                                                                        className="btn-download"
-                                                                        style={{ background: 'white', border: '1px solid #ef4444', color: '#ef4444' }}
-                                                                        onClick={(e) => handleDeleteSession(session.session_id, e, true)}
-                                                                        title="Permanently Delete"
-                                                                    >
-                                                                        <Trash2 size={16} />
-                                                                    </button>
-                                                                </>
-                                                            )}
-                                                            {downloadDropdown === session.session_id && (
-                                                                <div className="dropdown-menu">
-                                                                    <button onClick={() => downloadSession(session, 'json')}>JSON</button>
-                                                                    <button onClick={() => downloadSession(session, 'csv')}>CSV</button>
-                                                                    <button onClick={() => downloadSession(session, 'txt')}>TXT</button>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        {sessions.length === 0 && !loading && <tr><td colSpan={user?.id === 'master_root_0' ? 7 : 6} className="text-center" style={{ padding: '2rem' }}>No sessions found.</td></tr>}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* Mobile Card View */}
-                        <div className="mobile-only sessions-cards">
-                            {sessions.map(session => (
-                                <div key={session.session_id} className="session-card" onClick={() => handleSessionClick(session.session_id)}>
-                                    <div className="session-card-header">
-                                        <span className="session-card-id">{session.session_id}</span>
-                                        {/* ... Mobile card content ... */}
-                                    </div>
-                                    <div className="session-card-body">
-                                        <p>Date: {formatDate(session.started_at)}</p>
-                                        <p>Duration: {formatSecondsToTime(session.duration_seconds)}</p>
-                                    </div>
+                                                                    </>
+                                                                )}
+                                                                {downloadDropdown === session.session_id && (
+                                                                    <div className="dropdown-menu">
+                                                                        <button onClick={() => downloadSession(session, 'json')}>JSON</button>
+                                                                        <button onClick={() => downloadSession(session, 'csv')}>CSV</button>
+                                                                        <button onClick={() => downloadSession(session, 'txt')}>TXT</button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            {sessions.length === 0 && !loading && <tr><td colSpan={user?.id === 'master_root_0' ? 7 : 6} className="text-center" style={{ padding: '2rem' }}>No sessions found.</td></tr>}
+                                        </tbody>
+                                    </table>
                                 </div>
-                            ))}
-                        </div>
-
-                        {/* Pagination */}
-                        {totalPages > 1 && (
-                            <div className="pagination" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center', gap: '1rem' }}>
-                                <button
-                                    className="pagination-btn"
-                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                    disabled={currentPage === 1}
-                                >
-                                    <ChevronLeft size={18} /> Prev
-                                </button>
-                                <div className="pagination-info" style={{ display: 'flex', alignItems: 'center' }}>
-                                    Page {currentPage} of {totalPages}
-                                </div>
-                                <button
-                                    className="pagination-btn"
-                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                    disabled={currentPage === totalPages}
-                                >
-                                    Next <ChevronRight size={18} />
-                                </button>
                             </div>
+
+                            {/* Mobile Card View */}
+                            <div className="mobile-only sessions-cards">
+                                {sessions.map(session => (
+                                    <div key={session.session_id} className="session-card" onClick={() => handleSessionClick(session.session_id)}>
+                                        <div className="session-card-header">
+                                            <span className="session-card-id">{session.session_id}</span>
+                                            {/* ... Mobile card content ... */}
+                                        </div>
+                                        <div className="session-card-body">
+                                            <p>Date: {formatDate(session.started_at)}</p>
+                                            <p>Duration: {formatSecondsToTime(session.duration_seconds)}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Pagination */}
+                            {totalPages > 1 && (
+                                <div className="pagination" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+                                    <button
+                                        className="pagination-btn"
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        disabled={currentPage === 1}
+                                    >
+                                        <ChevronLeft size={18} /> Prev
+                                    </button>
+                                    <div className="pagination-info" style={{ display: 'flex', alignItems: 'center' }}>
+                                        Page {currentPage} of {totalPages}
+                                    </div>
+                                    <button
+                                        className="pagination-btn"
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        disabled={currentPage === totalPages}
+                                    >
+                                        Next <ChevronRight size={18} />
+                                    </button>
+                                </div>
+                            )}
+                        </>)}
+
+                        {activeTab === 'campaigns' && isAdmin && (
+                            <CampaignTab
+                                agentId={agentId}
+                                agentName={agentName}
+                                telephonyConfig={telephonyConfig}
+                                onNavigateToSession={(call) => {
+                                    // 1. Try direct session ID if present
+                                    if (call.session_id) {
+                                        navigate(isAdmin ? `/admin/session/${call.session_id}` : `/user/session/${call.session_id}`);
+                                        return;
+                                    }
+
+                                    // 3. Fallback: Search by Phone Number
+                                    const searchByPhone = () => {
+                                        const rawPhone = (call.to || call.number || call.phone_number || '').replace(/[^0-9]/g, '');
+
+                                        const findSessionInList = (phoneLast10, sessionList) => {
+                                            return sessionList.find(s => {
+                                                let cData = s.custom_data;
+                                                if (typeof cData === 'string' && cData.startsWith('{')) {
+                                                    try { cData = JSON.parse(cData); } catch (e) { /* ignore */ }
+                                                }
+                                                const sPhone = String(
+                                                    s.phone ||
+                                                    s.customer_phone ||
+                                                    (cData?.phone) ||
+                                                    (cData?.customer_number) ||
+                                                    (cData?.number) ||
+                                                    ''
+                                                ).replace(/[^0-9]/g, '');
+                                                return sPhone.endsWith(phoneLast10);
+                                            });
+                                        };
+
+                                        if (rawPhone && rawPhone.length >= 10) {
+                                            const last10 = rawPhone.slice(-10);
+                                            const matchedSession = findSessionInList(last10, sessions);
+
+                                            if (matchedSession) {
+                                                navigate(isAdmin ? `/admin/session/${matchedSession.session_id}` : `/user/session/${matchedSession.session_id}`);
+                                                return;
+                                            }
+
+                                            // API search by phone
+                                            toast.loading('Searching for session by phone...', { id: 'search-phone' });
+                                            api.get('/api/sessions', { params: { agent_id: agentId, search: last10, limit: 1 } })
+                                                .then(res => {
+                                                    toast.dismiss('search-phone');
+                                                    if (res.data && res.data.data && res.data.data.length > 0) {
+                                                        const remoteSession = res.data.data[0];
+                                                        navigate(isAdmin ? `/admin/session/${remoteSession.session_id}` : `/user/session/${remoteSession.session_id}`);
+                                                    } else {
+                                                        toast('Session not found yet. It may take a few minutes to sync.', { icon: '⏳' });
+                                                    }
+                                                })
+                                                .catch(() => {
+                                                    toast.dismiss('search-phone');
+                                                    toast.error('Failed to search for session.');
+                                                });
+                                        } else {
+                                            toast('Session link not yet available or not found for this call', { icon: 'ℹ️' });
+                                        }
+                                    };
+
+                                    // 2. Try matching by CallSid (Exotel ID) which is most reliable
+                                    const callSid = call.call_sid || call.Sid || call.sid || call.CallSid || call.id;
+
+                                    if (callSid && typeof callSid === 'string' && callSid.length > 10) {
+                                        const matchedBySid = sessions.find(s =>
+                                            s.metadata?.telephony?.call_id === callSid ||
+                                            s.metadata?.call_id === callSid ||
+                                            s.session_id === callSid
+                                        );
+
+                                        if (matchedBySid) {
+                                            navigate(isAdmin ? `/admin/session/${matchedBySid.session_id}` : `/user/session/${matchedBySid.session_id}`);
+                                            return;
+                                        }
+
+                                        // Specific API search for CallSid if not found locally
+                                        toast.loading(`Searching session for Call ID...`, { id: 'search-sid' });
+
+                                        api.get('/api/sessions', { params: { agent_id: agentId, search: callSid, limit: 1 } })
+                                            .then(res => {
+                                                toast.dismiss('search-sid');
+                                                if (res.data && res.data.data && res.data.data.length > 0) {
+                                                    const remoteSession = res.data.data[0];
+                                                    navigate(isAdmin ? `/admin/session/${remoteSession.session_id}` : `/user/session/${remoteSession.session_id}`);
+                                                } else {
+                                                    // Fallback to phone search if Sid search fails
+                                                    searchByPhone();
+                                                }
+                                            })
+                                            .catch((err) => {
+                                                toast.dismiss('search-sid');
+                                                searchByPhone();
+                                            });
+                                        return;
+                                    }
+
+                                    // If no Sid, go straight to phone search
+                                    searchByPhone();
+                                }}
+                            />
                         )}
                     </div>
                 </main>

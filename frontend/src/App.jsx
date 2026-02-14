@@ -11,7 +11,11 @@ import ChangePassword from './pages/ChangePassword';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import SystemStatus from './pages/SystemStatus';
+
+import Header from './components/Header';
 import DeactivationModal from './components/DeactivationModal';
+
+
 import './App.css';
 
 function PrivateRoute({ children, adminOnly = false }) {
@@ -77,12 +81,15 @@ function AppRoutes() {
           <AgentDetails />
         </PrivateRoute>
       } />
+
       <Route path="/admin/session/:sessionId" element={
         <PrivateRoute adminOnly={true}>
           <SessionDetails />
         </PrivateRoute>
       } />
+
       <Route path="/master/status" element={
+
         <PrivateRoute adminOnly={true}>
           <SystemStatus />
         </PrivateRoute>
