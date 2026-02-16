@@ -827,7 +827,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
 
                     {/* New Header Design: Stats Grid */}
                     <div className="card" style={{ background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', marginBottom: '1.5rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                        <div className="campaign-header-row">
                             <div>
                                 <h3 style={{ margin: '0 0 8px', fontSize: '1.25rem', color: '#1f2937', fontWeight: '700' }}>
                                     {campaignDisplayName(selectedCampaign)}
@@ -840,7 +840,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                                     }}>
                                         {getEffectiveStatus(selectedCampaign)}
                                     </span>
-                                    <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>ID: {selectedCampaign.sid || selectedCampaign.id}</span>
+                                    <span className="campaign-id-text">ID: {selectedCampaign.sid || selectedCampaign.id}</span>
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: '10px' }}>
@@ -1029,7 +1029,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
 
                             {/* Pagination Controls */}
                             {totalPages > 1 && (
-                                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem', gap: '1rem', borderTop: '1px solid #e5e7eb', background: '#f9fafb' }}>
+                                <div className="pagination-controls">
                                     <button
                                         onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                         disabled={currentPage === 1}
@@ -1077,6 +1077,30 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                     gap: 1rem;
                 }
                 
+                .campaign-header-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    margin-bottom: 1.5rem;
+                    gap: 1rem;
+                }
+                
+                .campaign-id-text {
+                    color: #94a3b8;
+                    font-size: 0.85rem;
+                    word-break: break-all;
+                }
+
+                .pagination-controls {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 1rem;
+                    gap: 1rem;
+                    border-top: 1px solid #e5e7eb;
+                    background: #f9fafb;
+                }
+                
                 @media (max-width: 768px) {
                     .campaign-grid-2, .campaign-grid-3 {
                         grid-template-columns: 1fr;
@@ -1087,6 +1111,22 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                     }
                     .table-container {
                         overflow-x: auto;
+                    }
+                    
+                    .campaign-header-row {
+                        flex-direction: column;
+                        align-items: stretch;
+                    }
+                    
+                    .campaign-id-text {
+                        display: block;
+                        margin-top: 4px;
+                    }
+                    
+                    .pagination-controls {
+                        flex-wrap: wrap;
+                        gap: 0.5rem;
+                        padding: 0.5rem;
                     }
                 }
             `}</style>
