@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { adminAPI, authAPI } from '../services/api';
 import Header from '../components/Header';
-import { Users, Plus, Edit2, Trash2, Power, Mail, UserPlus, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, Plus, Edit2, Trash2, Power, Mail, UserPlus, ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 
 export default function AdminUsers() {
@@ -21,6 +21,8 @@ export default function AdminUsers() {
   const [totalPages, setTotalPages] = useState(1);
   const [itemsPerPage] = useState(10);
   const [error, setError] = useState(null);
+  const userCache = useRef({});
+  const latestReqId = useRef(0);
 
   // Confirmation Modal State
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -70,26 +72,51 @@ export default function AdminUsers() {
 
   // 2. Data Fetching (Users List)
   const loadUsers = useCallback(async (silent = false) => {
+    const currentReqId = ++latestReqId.current;
+    const cacheKey = `${activeTab}-${currentPage}-${createdByFilter}`;
+
     try {
       if (!silent) {
-        if (users.length === 0) setLoading(true);
-        else setRefreshing(true);
+        // Try Cache First
+        if (userCache.current[cacheKey]) {
+          setUsers(userCache.current[cacheKey].users);
+          setTotalPages(userCache.current[cacheKey].totalPages);
+          setRefreshing(true);
+          setLoading(false);
+        } else {
+          if (users.length === 0) setLoading(true);
+          else setRefreshing(true);
+        }
       }
+
       const response = await adminAPI.getUsers({
         page: currentPage,
         limit: itemsPerPage,
         role: activeTab,
         createdBy: createdByFilter
       });
-      setUsers(response.data.users);
-      if (response.data.pagination) {
-        setTotalPages(response.data.pagination.totalPages);
-      }
+
+      // Prevent race conditions (stale responses)
+      if (currentReqId !== latestReqId.current) return;
+
+      const newUsers = response.data.users;
+      const newTotal = response.data.pagination ? response.data.pagination.totalPages : 1;
+
+      setUsers(newUsers);
+      setTotalPages(newTotal);
+
+      // Update Cache
+      userCache.current[cacheKey] = { users: newUsers, totalPages: newTotal };
+
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to load users');
+      if (currentReqId === latestReqId.current) {
+        setError(err.response?.data?.error || 'Failed to load users');
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (currentReqId === latestReqId.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [currentPage, itemsPerPage, activeTab, createdByFilter, users.length]);
 
@@ -288,7 +315,7 @@ export default function AdminUsers() {
               <tr>
                 <th>Email</th>
                 <th>Role</th>
-                <th>Agents</th>
+                <th>Assigned Agents</th>
                 <th>Status</th>
                 <th>Created By</th>
                 <th>Created Date</th>
@@ -316,7 +343,26 @@ export default function AdminUsers() {
                       </span>
                     </td>
 
-                    <td className="text-center">{user.agentCount || 0}</td>
+                    <td>
+                      {user.role === 'super_admin' ? (
+                        <span style={{ background: '#edf2f7', color: '#718096', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '600' }}>All Access</span>
+                      ) : (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '280px' }}>
+                          {user.agents && user.agents.length > 0 ? (
+                            user.agents.map(agentId => {
+                              const agent = allAgents.find(a => a.agent_id === agentId);
+                              return (
+                                <span key={agentId} style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                                  {agent ? agent.name : 'Unknown'}
+                                </span>
+                              )
+                            })
+                          ) : (
+                            <span style={{ color: '#cbd5e0', fontSize: '12px' }}>-</span>
+                          )}
+                        </div>
+                      )}
+                    </td>
                     <td>
                       <span className={`status-badge ${user.is_active ? 'active' : 'inactive'}`}>
                         {user.is_active ? 'Active' : 'Inactive'}
@@ -443,18 +489,30 @@ export default function AdminUsers() {
                 <div className="form-group">
                   <label>Assign Agents</label>
                   <div className="custom-dropdown">
-                    <button
-                      type="button"
+                    <div
                       className="dropdown-trigger"
                       onClick={() => setShowAgentDropdown(!showAgentDropdown)}
+                      style={{ height: 'auto', minHeight: '42px', padding: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
                     >
-                      <span>
-                        {newUser.agents.length === 0
-                          ? 'Select Agents'
-                          : `${newUser.agents.length} Agent(s) Selected`}
-                      </span>
-                      <ChevronDown size={18} className={showAgentDropdown ? 'rotate' : ''} />
-                    </button>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1 }}>
+                        {newUser.agents.length === 0 && <span style={{ color: '#a0aec0', paddingLeft: '8px', fontSize: '0.9rem' }}>Select Agents...</span>}
+                        {newUser.agents.map(agentId => {
+                          const agent = allAgents.find(a => a.agent_id === agentId);
+                          return (
+                            <span key={agentId} style={{ background: '#e6fffa', color: '#008F4B', border: '1px solid #b2f5ea', padding: '2px 6px', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              {agent ? agent.name : agentId}
+                              <span
+                                onClick={(e) => { e.stopPropagation(); toggleAgentInList(agentId, true); }}
+                                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                              >
+                                <X size={12} />
+                              </span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                      <ChevronDown size={18} className={showAgentDropdown ? 'rotate' : ''} style={{ color: '#a0aec0', marginLeft: '8px' }} />
+                    </div>
 
                     {showAgentDropdown && (
                       <div className="dropdown-content">
@@ -523,18 +581,30 @@ export default function AdminUsers() {
               <div className="form-group">
                 <label>Assigned Agents</label>
                 <div className="custom-dropdown">
-                  <button
-                    type="button"
+                  <div
                     className="dropdown-trigger"
                     onClick={() => setShowAgentDropdown(!showAgentDropdown)}
+                    style={{ height: 'auto', minHeight: '42px', padding: '6px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }}
                   >
-                    <span>
-                      {editingUser.agents.length === 0
-                        ? 'Select Agents'
-                        : `${editingUser.agents.length} Agent(s) Selected`}
-                    </span>
-                    <ChevronDown size={18} className={showAgentDropdown ? 'rotate' : ''} />
-                  </button>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', flex: 1 }}>
+                      {editingUser.agents.length === 0 && <span style={{ color: '#a0aec0', paddingLeft: '8px', fontSize: '0.9rem' }}>Select Agents...</span>}
+                      {editingUser.agents.map(agentId => {
+                        const agent = allAgents.find(a => a.agent_id === agentId);
+                        return (
+                          <span key={agentId} style={{ background: '#e6fffa', color: '#008F4B', border: '1px solid #b2f5ea', padding: '2px 6px', borderRadius: '4px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            {agent ? agent.name : agentId}
+                            <span
+                              onClick={(e) => { e.stopPropagation(); toggleAgentInList(agentId); }}
+                              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                            >
+                              <X size={12} />
+                            </span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <ChevronDown size={18} className={showAgentDropdown ? 'rotate' : ''} style={{ color: '#a0aec0', marginLeft: '8px' }} />
+                  </div>
 
                   {showAgentDropdown && (
                     <div className="dropdown-content">

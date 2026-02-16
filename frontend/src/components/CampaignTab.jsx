@@ -11,6 +11,8 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
     const [callDetails, setCallDetails] = useState([]);
     const [detailsLoading, setDetailsLoading] = useState(false);
     const [callFilter, setCallFilter] = useState('all'); // 'all','successful','failed','pending'
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
 
     const [showAll, setShowAll] = useState(false);
     const [allCampaigns, setAllCampaigns] = useState([]);
@@ -350,6 +352,21 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
         return true;
     });
 
+    const totalPages = Math.ceil(filteredCalls.length / itemsPerPage);
+    const currentItems = filteredCalls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+    const stats = {
+        total: callDetails.length,
+        success: callDetails.filter(c => {
+            const s = (c.status || c.Status || '').toLowerCase();
+            return s === 'completed' || s === 'answered' || s === 'completed-success';
+        }).length,
+        failed: callDetails.filter(c => {
+            const s = (c.status || c.Status || '').toLowerCase();
+            return s.includes('fail') || s === 'busy' || s === 'no-answer' || s === 'noanswer' || s === 'canceled';
+        }).length
+    };
+
     const campaignDisplayName = (camp) => {
         const name = camp.friendly_name || camp.name || 'Unnamed';
         // Strips _AG followed by any alphanumeric (for both full and sliced IDs)
@@ -636,69 +653,166 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                     )}
 
                     {!loading && (showAll ? allCampaigns : campaigns).length > 0 && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {(showAll ? allCampaigns : campaigns).map((camp, i) => {
-                                const id = camp.sid || camp.id || camp.campaign_sid || camp.uuid || camp.Sid;
-                                return (
-                                    <div key={id || i}
-                                        style={{
-                                            background: 'white', borderRadius: '10px', padding: '1rem 1.25rem',
-                                            border: '1px solid #e5e7eb',
-                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                            borderLeft: `4px solid ${camp.status?.toLowerCase() === 'completed' ? '#22c55e' : (camp.status?.toLowerCase() === 'failed' || camp.status?.toLowerCase() === 'canceled') ? '#ef4444' : camp.status?.toLowerCase() === 'paused' ? '#94a3b8' : '#f59e0b'}`,
-                                            transition: 'all 0.2s', position: 'relative'
-                                        }}
-                                        onClick={(e) => {
-                                            // Only navigate if not clicking checkbox or delete
-                                            if (e.target.type !== 'checkbox' && !e.target.closest('button')) {
-                                                if (id) {
-                                                    setSelectedCampaign(camp);
-                                                    fetchCallDetails(id);
-                                                }
-                                            }
-                                        }}
-                                        onMouseOver={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'; e.currentTarget.style.borderColor = '#008F4B'; }}
-                                        onMouseOut={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = '#e5e7eb'; }}
-                                    >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            <input type="checkbox"
-                                                checked={selectedCampaignIds.has(id)}
-                                                onChange={e => toggleSelect(id, e.target.checked)}
-                                                onClick={e => e.stopPropagation()}
-                                                style={{ width: '18px', height: '18px', accentColor: '#008F4B', cursor: 'pointer' }}
-                                            />
-                                            <div>
-                                                <h4 style={{ margin: '0 0 4px', fontSize: '1rem', fontWeight: '600', color: '#1f2937' }}>
-                                                    {campaignDisplayName(camp)}
-                                                </h4>
-                                                <div style={{ display: 'flex', gap: '16px', fontSize: '0.8rem', color: '#94a3b8' }}>
-                                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Clock size={12} /> {formatCampaignDate(camp.date_created)}</span>
-                                                    <span style={{
-                                                        padding: '2px 8px', borderRadius: '4px', fontWeight: '600', fontSize: '0.75rem',
-                                                        textTransform: 'uppercase', letterSpacing: '0.03em',
-                                                        background: (camp.status === 'Created' && camp.schedule?.send_at) ? '#e0f2fe' : (getEffectiveStatus(camp) === 'Completed' ? '#dcfce7' : (getEffectiveStatus(camp) === 'Failed' || getEffectiveStatus(camp) === 'Canceled') ? '#fee2e2' : getEffectiveStatus(camp) === 'Paused' ? '#f1f5f9' : '#fef9c3'),
-                                                        color: (camp.status === 'Created' && camp.schedule?.send_at) ? '#0369a1' : (getEffectiveStatus(camp) === 'Completed' ? '#166534' : (getEffectiveStatus(camp) === 'Failed' || getEffectiveStatus(camp) === 'Canceled') ? '#991b1b' : getEffectiveStatus(camp) === 'Paused' ? '#475569' : '#854d0e')
-                                                    }}>
-                                                        {(camp.status === 'Created' && camp.schedule?.send_at)
-                                                            ? `Scheduled: ${new Date(camp.schedule.send_at).toLocaleString()}`
-                                                            : getEffectiveStatus(camp)}
+                        <div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                                {(showAll ? allCampaigns : campaigns)
+                                    .slice((currentPage - 1) * 9, currentPage * 9)
+                                    .map((camp, i) => {
+                                        const id = camp.sid || camp.id || camp.campaign_sid || camp.uuid || camp.Sid;
+                                        const status = getEffectiveStatus(camp);
+
+                                        // Robust Color Logic
+                                        const isFailed = status === 'Failed' || status === 'Canceled';
+                                        const isCompleted = status === 'Completed';
+                                        const isPaused = status === 'Paused';
+
+                                        const cardBorderColor = isFailed ? '#ef4444' : isCompleted ? '#22c55e' : isPaused ? '#94a3b8' : '#e5e7eb';
+                                        const cardBg = isFailed ? '#fef2f2' : isCompleted ? '#f0fdf4' : 'white';
+                                        const badgeBg = isFailed ? '#fee2e2' : isCompleted ? '#dcfce7' : isPaused ? '#f1f5f9' : '#fef9c3';
+                                        const badgeColor = isFailed ? '#991b1b' : isCompleted ? '#166534' : isPaused ? '#475569' : '#854d0e';
+
+                                        // Mock stats if not present (since list API often omits them)
+                                        // In a real scenario, we'd need to fetch these or have the backend aggregate them.
+                                        // For now, we render what's available or placeholders.
+                                        const stats = camp.stats || {};
+                                        const totalCalls = stats.total || (status === 'Completed' ? 'Done' : '-');
+                                        const successCalls = stats.connected || stats.completed || '-'; // Exotel field might be 'connected'
+                                        const failedCalls = stats.failed || '-';
+
+                                        return (
+                                            <div key={id || i}
+                                                style={{
+                                                    background: 'white',
+                                                    borderRadius: '12px',
+                                                    overflow: 'hidden',
+                                                    border: `1px solid ${cardBorderColor}`,
+                                                    // Stronger visual queue for status
+                                                    borderLeft: `6px solid ${cardBorderColor}`,
+                                                    boxShadow: '0 2px 5px rgba(0,0,0,0.05)',
+                                                    transition: 'all 0.2s',
+                                                    position: 'relative',
+                                                    cursor: 'pointer',
+                                                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+                                                }}
+                                                onClick={(e) => {
+                                                    if (e.target.type !== 'checkbox' && !e.target.closest('button')) {
+                                                        if (id) {
+                                                            setSelectedCampaign(camp);
+                                                            fetchCallDetails(id);
+                                                            setCurrentPage(1);
+                                                        }
+                                                    }
+                                                }}
+                                                onMouseOver={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 12px 20px -8px rgba(0, 0, 0, 0.15)'; }}
+                                                onMouseOut={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 2px 5px rgba(0,0,0,0.05)'; }}
+                                            >
+                                                <div style={{ padding: '1.25rem' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <input type="checkbox"
+                                                                checked={selectedCampaignIds.has(id)}
+                                                                onChange={e => toggleSelect(id, e.target.checked)}
+                                                                onClick={e => e.stopPropagation()}
+                                                                style={{ width: '18px', height: '18px', accentColor: '#008F4B', cursor: 'pointer' }}
+                                                            />
+                                                            <span style={{
+                                                                padding: '4px 10px', borderRadius: '6px', fontWeight: '700', fontSize: '0.7rem',
+                                                                textTransform: 'uppercase', letterSpacing: '0.05em',
+                                                                background: badgeBg, color: badgeColor
+                                                            }}>
+                                                                {status}
+                                                            </span>
+                                                        </div>
+                                                        <button
+                                                            onClick={(e) => handleDeleteCampaign(id, e)}
+                                                            className="delete-btn"
+                                                            style={{
+                                                                padding: '6px', borderRadius: '6px', border: 'none', background: 'transparent', color: '#9ca3af',
+                                                                cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                            }}
+                                                            onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#ef4444'; }}
+                                                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9ca3af'; }}
+                                                            title="Delete Campaign"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+
+                                                    <h4 style={{
+                                                        margin: '0 0 12px', fontSize: '1.1rem', fontWeight: '700', color: '#1f2937',
+                                                        lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                                                    }} title={campaignDisplayName(camp)}>
+                                                        {campaignDisplayName(camp)}
+                                                    </h4>
+
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#6b7280', marginBottom: '1.25rem' }}>
+                                                        <Clock size={14} />
+                                                        <span>{formatCampaignDate(camp.date_created)}</span>
+                                                    </div>
+
+                                                    {/* Stats Row */}
+                                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                                                        <div style={{ textAlign: 'center' }}>
+                                                            <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: '600', textTransform: 'uppercase' }}>Calls</div>
+                                                            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#334155' }}>{totalCalls}</div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'center', borderLeft: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0' }}>
+                                                            <div style={{ fontSize: '0.7rem', color: '#166534', fontWeight: '600', textTransform: 'uppercase' }}>Success</div>
+                                                            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#16a34a' }}>{successCalls}</div>
+                                                        </div>
+                                                        <div style={{ textAlign: 'center' }}>
+                                                            <div style={{ fontSize: '0.7rem', color: '#991b1b', fontWeight: '600', textTransform: 'uppercase' }}>Failed</div>
+                                                            <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#ef4444' }}>{failedCalls}</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div style={{
+                                                    borderTop: '1px solid #f3f4f6', padding: '0.75rem 1.25rem', display: 'flex',
+                                                    justifyContent: 'space-between', alignItems: 'center', background: '#fafafa'
+                                                }}>
+                                                    <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontFamily: 'monospace' }}>ID: {(id || '').substring(0, 8)}</span>
+                                                    <span style={{ color: '#008F4B', fontWeight: '600', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                        View Details <ChevronRight size={14} />
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <button
-                                                    onClick={(e) => handleDeleteCampaign(id, e)}
-                                                    style={{ padding: '6px', borderRadius: '6px', border: 'none', background: '#fee2e2', color: '#ef4444', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                                                    title="Delete Campaign"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                                <ChevronRight size={20} color="#94a3b8" />
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                        );
+                                    })}
+                            </div>
+
+                            {/* Pagination Controls */}
+                            {Math.ceil((showAll ? allCampaigns : campaigns).length / 9) > 1 && (
+                                <div style={{ display: 'flex', justifySelf: 'center', alignItems: 'center', gap: '1rem', marginTop: '1rem', paddingBottom: '2rem' }}>
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                        disabled={currentPage === 1}
+                                        style={{
+                                            padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb',
+                                            background: currentPage === 1 ? '#f3f4f6' : 'white',
+                                            color: currentPage === 1 ? '#9ca3af' : '#374151',
+                                            cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        Previous
+                                    </button>
+                                    <span style={{ fontSize: '0.9rem', color: '#4b5563', fontWeight: '500' }}>
+                                        Page {currentPage} of {Math.ceil((showAll ? allCampaigns : campaigns).length / 9)}
+                                    </span>
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, Math.ceil((showAll ? allCampaigns : campaigns).length / 9)))}
+                                        disabled={currentPage === Math.ceil((showAll ? allCampaigns : campaigns).length / 9)}
+                                        style={{
+                                            padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb',
+                                            background: currentPage === Math.ceil((showAll ? allCampaigns : campaigns).length / 9) ? '#f3f4f6' : 'white',
+                                            color: currentPage === Math.ceil((showAll ? allCampaigns : campaigns).length / 9) ? '#9ca3af' : '#374151',
+                                            cursor: currentPage === Math.ceil((showAll ? allCampaigns : campaigns).length / 9) ? 'not-allowed' : 'pointer'
+                                        }}
+                                    >
+                                        Next
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -708,170 +822,201 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                 <div>
                     <button onClick={() => { setSelectedCampaign(null); setCallDetails([]); setCallFilter('all'); }}
                         style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#008F4B', fontWeight: '600', fontSize: '0.9rem', marginBottom: '1rem', padding: '0' }}>
-                        ← Back to Campaigns
+                        <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} /> Back to Campaigns
                     </button>
-                    <div className="card" style={{ background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', marginBottom: '1rem' }}>
-                        <h3 style={{ margin: '0 0 8px', fontSize: '1.1rem', color: '#1f2937' }}>
-                            {campaignDisplayName(selectedCampaign)}
-                        </h3>
-                        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', fontSize: '0.85rem', color: '#64748b' }}>
-                            <span>Status: {
-                                (selectedCampaign.status === 'Created' && selectedCampaign.schedule?.send_at) ? (
-                                    <strong style={{ color: '#0369a1', background: '#e0f2fe', padding: '2px 8px', borderRadius: '4px' }}>
-                                        Scheduled: {new Date(selectedCampaign.schedule.send_at).toLocaleString()}
-                                    </strong>
-                                ) : (
-                                    <strong style={{ color: getStatusColor(getEffectiveStatus(selectedCampaign)) }}>{getEffectiveStatus(selectedCampaign)}</strong>
-                                )
-                            }</span>
-                            <span>Created: {formatCampaignDate(selectedCampaign.date_created)}</span>
-                            <span>Total Calls: {callDetails.length}</span>
+
+                    {/* New Header Design: Stats Grid */}
+                    <div className="card" style={{ background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', marginBottom: '1.5rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                            <div>
+                                <h3 style={{ margin: '0 0 8px', fontSize: '1.25rem', color: '#1f2937', fontWeight: '700' }}>
+                                    {campaignDisplayName(selectedCampaign)}
+                                </h3>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{
+                                        padding: '4px 10px', borderRadius: '6px', fontWeight: '600', fontSize: '0.8rem',
+                                        background: getStatusBg(getEffectiveStatus(selectedCampaign)),
+                                        color: (getEffectiveStatus(selectedCampaign) === 'Completed' ? '#166534' : (getEffectiveStatus(selectedCampaign) === 'Failed' || getEffectiveStatus(selectedCampaign) === 'Canceled') ? '#991b1b' : getEffectiveStatus(selectedCampaign) === 'Paused' ? '#475569' : '#854d0e')
+                                    }}>
+                                        {getEffectiveStatus(selectedCampaign)}
+                                    </span>
+                                    <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>ID: {selectedCampaign.sid || selectedCampaign.id}</span>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                {(selectedCampaign.status === 'InProgress' || selectedCampaign.status === 'Created' || selectedCampaign.status === 'Scheduled' || selectedCampaign.status === 'in-progress') && (
+                                    <button onClick={() => handleStopCampaign(selectedCampaign.sid || selectedCampaign.id)}
+                                        style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #cbd5e1', background: 'white', color: '#475569', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: '600' }}>
+                                        <Pause size={16} /> Pause
+                                    </button>
+                                )}
+                                {(selectedCampaign.status?.toLowerCase() === 'paused') && (
+                                    <button onClick={() => handleResumeCampaign(selectedCampaign.sid || selectedCampaign.id)}
+                                        style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#008F4B', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: '600' }}>
+                                        <Play size={16} /> Resume
+                                    </button>
+                                )}
+                                <button onClick={(e) => handleDeleteCampaign(selectedCampaign.sid || selectedCampaign.id, e)}
+                                    style={{ padding: '8px', borderRadius: '6px', border: 'none', background: '#fee2e2', color: '#ef4444', cursor: 'pointer' }} title="Delete Campaign">
+                                    <Trash2 size={18} />
+                                </button>
+                            </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            <button
-                                onClick={(e) => handleDeleteCampaign(selectedCampaign.sid || selectedCampaign.id, e)}
-                                style={{
-                                    marginTop: '1rem', padding: '8px 16px', borderRadius: '6px',
-                                    border: '1px solid #fee2e2', background: '#fff1f2', color: '#e11d48',
-                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: '600'
-                                }}
-                            >
-                                <Trash2 size={14} /> Delete Campaign
-                            </button>
 
-                            {(selectedCampaign.status === 'InProgress' || selectedCampaign.status === 'Created' || selectedCampaign.status === 'Scheduled' || selectedCampaign.status === 'in-progress') && (
-                                <button
-                                    onClick={() => handleStopCampaign(selectedCampaign.sid || selectedCampaign.id)}
-                                    style={{
-                                        marginTop: '1rem', marginLeft: '1rem', padding: '8px 16px', borderRadius: '6px',
-                                        border: '1px solid #94a3b8', background: '#f8fafc', color: '#475569',
-                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: '600'
-                                    }}
-                                >
-                                    <Pause size={14} /> Pause Campaign
-                                </button>
-                            )}
+                        {/* Stats Cards Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
+                            {/* Total Calls */}
+                            <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7' }}>
+                                    <Phone size={20} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: '500' }}>Total Calls</div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#0f172a' }}>{stats.total}</div>
+                                </div>
+                            </div>
 
-                            {(selectedCampaign.status?.toLowerCase() === 'paused') && (
-                                <button
-                                    onClick={() => handleResumeCampaign(selectedCampaign.sid || selectedCampaign.id)}
-                                    style={{
-                                        marginTop: '1rem', marginLeft: '1rem', padding: '8px 16px', borderRadius: '6px',
-                                        border: '1px solid #008F4B', background: '#f0fdf4', color: '#008F4B',
-                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: '600'
-                                    }}
-                                >
-                                    <Play size={14} /> Resume Campaign
-                                </button>
-                            )}
+                            {/* Successful */}
+                            <div style={{ background: '#f0fdf4', padding: '1rem', borderRadius: '10px', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#16a34a' }}>
+                                    <CheckCircle size={20} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.8rem', color: '#166534', fontWeight: '500' }}>Successful</div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#14532d' }}>{stats.success}</div>
+                                </div>
+                            </div>
+
+                            {/* Failed */}
+                            <div style={{ background: '#fef2f2', padding: '1rem', borderRadius: '10px', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
+                                    <AlertCircle size={20} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.8rem', color: '#991b1b', fontWeight: '500' }}>Failed</div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: '700', color: '#7f1d1d' }}>{stats.failed}</div>
+                                </div>
+                            </div>
+
+                            {/* Created At */}
+                            <div style={{ background: '#fffbeb', padding: '1rem', borderRadius: '10px', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                                    <Clock size={20} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: '0.8rem', color: '#92400e', fontWeight: '500' }}>Created On</div>
+                                    <div style={{ fontSize: '0.9rem', fontWeight: '600', color: '#78350f' }}>{new Date(selectedCampaign.date_created).toLocaleDateString()}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#92400e' }}>{new Date(selectedCampaign.date_created).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    {/* Call Filter Buttons */}
-                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-                        {['all', 'successful', 'failed', 'pending'].map(f => (
-                            <button key={f} onClick={() => setCallFilter(f)}
+                    {/* Filter & Actions Bar */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            {['all', 'successful', 'failed', 'pending'].map(f => (
+                                <button key={f} onClick={() => { setCallFilter(f); setCurrentPage(1); }}
+                                    style={{
+                                        padding: '0.5rem 1rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                        fontWeight: callFilter === f ? '600' : '400',
+                                        border: callFilter === f ? '2px solid #008F4B' : '1px solid #e5e7eb',
+                                        background: callFilter === f ? '#008F4B' : 'white',
+                                        color: callFilter === f ? 'white' : '#374151',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                                </button>
+                            ))}
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button onClick={handleResendFailed}
                                 style={{
-                                    padding: '0.5rem 1rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
-                                    fontWeight: callFilter === f ? '600' : '400',
-                                    border: callFilter === f ? '2px solid #008F4B' : '1px solid #e5e7eb',
-                                    background: callFilter === f ? '#008F4B' : 'white',
-                                    color: callFilter === f ? 'white' : '#374151',
-                                    transition: 'all 0.2s'
-                                }}
-                            >
-                                {f.charAt(0).toUpperCase() + f.slice(1)}
-                                {f !== 'all' && ` (${callDetails.filter(c => {
-                                    const s = (c.status || c.Status || '').toLowerCase();
-                                    if (f === 'successful') return s === 'completed' || s === 'answered' || s === 'completed-success';
-                                    if (f === 'failed') return s.includes('fail') || s === 'busy' || s === 'no-answer' || s === 'noanswer' || s === 'canceled';
-                                    if (f === 'pending') return s === 'queued' || s === 'in-progress' || s === 'ringing' || s === 'initiated';
-                                    return false;
-                                }).length
-                                    })`}
+                                    padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem',
+                                    fontWeight: '600', border: '1px solid #008F4B', background: '#f0fdf4', color: '#008F4B',
+                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}>
+                                <RotateCcw size={14} /> Retry Failed
                             </button>
-                        ))}
-                        <button onClick={handleResendFailed}
-                            style={{
-                                marginLeft: 'auto', padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem',
-                                fontWeight: '600', border: '1px solid #008F4B', background: '#f0fdf4', color: '#008F4B',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                            }}>
-                            <RotateCcw size={14} /> Resend to Failed
-                        </button>
-                        <button onClick={handleResendAll}
-                            style={{
-                                padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem',
-                                fontWeight: '600', border: '1px solid #64748b', background: '#f8fafc', color: '#475569',
-                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                            }}>
-                            <RefreshCw size={14} /> Resend to All
-                        </button>
+                            <button onClick={handleResendAll}
+                                style={{
+                                    padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem',
+                                    fontWeight: '600', border: '1px solid #cbd5e1', background: 'white', color: '#475569',
+                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
+                                }}>
+                                <RefreshCw size={14} /> Resend All
+                            </button>
+                        </div>
                     </div>
 
-                    {/* Call Details Table */}
+                    {/* Validated Table */}
                     {detailsLoading ? (
-                        <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8' }}>
-                            <RefreshCw size={20} className="spin" /> Loading calls...
+                        <div style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>
+                            <RefreshCw size={24} className="spin" style={{ marginBottom: '12px' }} />
+                            <p>Loading call details...</p>
                         </div>
                     ) : (
                         <div className="card" style={{ background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
                             <div className="table-container">
                                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                    <thead style={{ background: '#f8f9fa' }}>
+                                    <thead style={{ background: '#f8f9fa', borderBottom: '1px solid #e5e7eb' }}>
                                         <tr>
-                                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '600', color: '#444', fontSize: '0.85rem' }}>Phone</th>
-                                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '600', color: '#444', fontSize: '0.85rem' }}>Name</th>
-                                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '600', color: '#444', fontSize: '0.85rem' }}>Status</th>
-                                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '600', color: '#444', fontSize: '0.85rem' }}>Duration</th>
-                                            <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: '600', color: '#444', fontSize: '0.85rem' }}>Actions</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#4b5563', fontSize: '0.85rem' }}>Phone Number</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#4b5563', fontSize: '0.85rem' }}>Contact Name</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#4b5563', fontSize: '0.85rem' }}>Status</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#4b5563', fontSize: '0.85rem' }}>Duration</th>
+                                            <th style={{ padding: '1rem', textAlign: 'left', fontWeight: '600', color: '#4b5563', fontSize: '0.85rem' }}>Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredCalls.length === 0 ? (
-                                            <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>No calls found</td></tr>
-                                        ) : filteredCalls.map((call, i) => {
+                                        {currentItems.length === 0 ? (
+                                            <tr><td colSpan={5} style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>No calls match the filter.</td></tr>
+                                        ) : currentItems.map((call, i) => {
                                             const status = (call.status || call.Status || 'unknown').toLowerCase();
                                             const isSuccess = status === 'completed' || status === 'answered' || status === 'completed-success';
                                             const isFailure = status.includes('fail') || status === 'busy' || status === 'no-answer' || status === 'noanswer' || status === 'canceled';
 
                                             return (
-                                                <tr key={call.sid || call.id || i} style={{ borderBottom: '1px solid #f0f0f0', background: getStatusBg(status) }}>
-                                                    <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                                                <tr key={call.sid || call.id || i} style={{ borderBottom: '1px solid #f1f5f9', background: 'white' }}>
+                                                    <td style={{ padding: '1rem', fontFamily: 'monospace', fontSize: '0.9rem', color: '#334155' }}>
                                                         {call.to || call.number || call.phone_number || '-'}
                                                     </td>
-                                                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.9rem', color: '#1f2937' }}>
+                                                    <td style={{ padding: '1rem', fontSize: '0.9rem', color: '#334155' }}>
                                                         {call.Name || call.name || call.first_name || '-'}
                                                     </td>
-                                                    <td style={{ padding: '0.75rem 1rem' }}>
+                                                    <td style={{ padding: '1rem' }}>
                                                         <span style={{
-                                                            display: 'inline-flex', alignItems: 'center', gap: '4px',
-                                                            padding: '3px 10px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '600',
+                                                            display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                                            padding: '4px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '600',
                                                             background: isSuccess ? '#dcfce7' : isFailure ? '#fee2e2' : '#fef9c3',
-                                                            color: isSuccess ? '#166534' : isFailure ? '#991b1b' : '#854d0e'
+                                                            color: isSuccess ? '#166534' : isFailure ? '#991b1b' : '#854d0e',
+                                                            border: `1px solid ${isSuccess ? '#bbf7d0' : isFailure ? '#fecaca' : '#fde68a'}`
                                                         }}>
                                                             {isSuccess ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
-                                                            {status}
-                                                            {status === 'completed' && parseInt(call.duration || 0) < 5 && ' (Short term)'}
+                                                            {status.toUpperCase()}
                                                         </span>
                                                     </td>
-                                                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.85rem', color: '#64748b' }}>
-                                                        {call.duration || call.conversation_duration || '-'}s
+                                                    <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#64748b' }}>
+                                                        {call.duration || call.conversation_duration || '0'}s
                                                     </td>
-                                                    <td style={{ padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <td style={{ padding: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                         {isSuccess && onNavigateToSession && (
                                                             <button onClick={() => onNavigateToSession(call)}
                                                                 style={{
                                                                     display: 'flex', alignItems: 'center', gap: '4px',
-                                                                    padding: '4px 10px', borderRadius: '6px', fontSize: '0.8rem',
-                                                                    fontWeight: '500', border: '1px solid #008F4B', background: '#f0fdf4',
-                                                                    color: '#008F4B', cursor: 'pointer', transition: 'all 0.2s'
-                                                                }}>
-                                                                <ExternalLink size={12} /> View Session
+                                                                    padding: '6px 10px', borderRadius: '6px', fontSize: '0.8rem',
+                                                                    fontWeight: '500', border: '1px solid #bbf7d0', background: '#f0fdf4',
+                                                                    color: '#166534', cursor: 'pointer', transition: 'all 0.2s'
+                                                                }}
+                                                                onMouseOver={e => e.currentTarget.style.background = '#dcfce7'}
+                                                                onMouseOut={e => e.currentTarget.style.background = '#f0fdf4'}
+                                                            >
+                                                                <ExternalLink size={14} /> View Session
                                                             </button>
                                                         )}
                                                         <button title="Copy Number" onClick={() => { navigator.clipboard.writeText(call.to || call.number || ''); toast.success('Number copied!'); }}
-                                                            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px' }}>
+                                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px' }}>
                                                             <Copy size={16} />
                                                         </button>
                                                     </td>
@@ -881,6 +1026,41 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                                     </tbody>
                                 </table>
                             </div>
+
+                            {/* Pagination Controls */}
+                            {totalPages > 1 && (
+                                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem', gap: '1rem', borderTop: '1px solid #e5e7eb', background: '#f9fafb' }}>
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                        disabled={currentPage === 1}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: '6px', border: '1px solid #d1d5db',
+                                            background: currentPage === 1 ? '#f3f4f6' : 'white',
+                                            color: currentPage === 1 ? '#9ca3af' : '#374151',
+                                            cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                            display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem'
+                                        }}
+                                    >
+                                        &larr; Prev
+                                    </button>
+                                    <span style={{ fontSize: '0.9rem', color: '#4b5563', fontWeight: '500' }}>
+                                        Page {currentPage} of {totalPages}
+                                    </span>
+                                    <button
+                                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                        disabled={currentPage === totalPages}
+                                        style={{
+                                            padding: '6px 12px', borderRadius: '6px', border: '1px solid #d1d5db',
+                                            background: currentPage === totalPages ? '#f3f4f6' : 'white',
+                                            color: currentPage === totalPages ? '#9ca3af' : '#374151',
+                                            cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                                            display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem'
+                                        }}
+                                    >
+                                        Next &rarr;
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

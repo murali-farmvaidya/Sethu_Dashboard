@@ -185,128 +185,216 @@ export default function Campaigns() {
     };
 
 
+    const [callFilter, setCallFilter] = useState('all');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
+
     const handleViewDetails = (campaign) => {
         setSelectedCampaign(campaign);
         fetchCallDetails(campaign.response?.sid || campaign.sid || campaign.id);
-    };
-
-    const handleRecallFailed = () => {
-        // Filter failed calls
-        const failedCalls = callDetails.filter(call =>
-            ['failed', 'busy', 'no-answer', 'canceled'].includes(call.Status || call.status)
-        );
-
-        if (failedCalls.length === 0) {
-            return toast('No failed calls to recall.', { icon: 'ℹ️' });
-        }
-
-        // Logic to "Recall": 
-        // ideally we generate a CSV of these numbers and open the Create Modal pre-filled.
-        // For now, simpler approach: Download CSV.
-
-        const csvContent = "data:text/csv;charset=utf-8,"
-            + ["Phone", "Name"].join(",") + "\n"
-            + failedCalls.map(c => `${c.To || c.to},Recall`).join("\n");
-
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `recall_failed_${selectedCampaign.friendly_name || 'campaign'}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        toast.success(`Downloaded ${failedCalls.length} failed contacts. Upload this file to start a Recall campaign.`);
-        setShowModal(true); // Open modal for them to upload immediately
+        setCurrentPage(1);
+        setCallFilter('all');
     };
 
     if (selectedCampaign) {
+        // Stats Calculation
+        const stats = {
+            total: callDetails.length,
+            success: callDetails.filter(c => {
+                const s = (c.status || c.Status || '').toLowerCase();
+                return s === 'completed' || s === 'answered' || s === 'completed-success';
+            }).length,
+            failed: callDetails.filter(c => {
+                const s = (c.status || c.Status || '').toLowerCase();
+                return s.includes('fail') || s === 'busy' || s === 'no-answer' || s === 'noanswer' || s === 'canceled';
+            }).length
+        };
+
+        // Filter Logic
+        const filteredCalls = callDetails.filter(c => {
+            if (callFilter === 'all') return true;
+            const s = (c.status || c.Status || '').toLowerCase();
+            if (callFilter === 'successful') return s === 'completed' || s === 'answered' || s === 'completed-success';
+            if (callFilter === 'failed') return s.includes('fail') || s === 'busy' || s === 'no-answer' || s === 'noanswer' || s === 'canceled';
+            if (callFilter === 'pending') return s === 'queued' || s === 'in-progress' || s === 'ringing' || s === 'initiated';
+            return true;
+        });
+
+        // Pagination Logic
+        const totalPages = Math.ceil(filteredCalls.length / itemsPerPage);
+        const currentItems = filteredCalls.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+        const getStatusBg = (status) => {
+            const s = (status || '').toLowerCase();
+            if (s === 'completed' || s === 'answered' || s === 'completed-success') return '#f0fdf4';
+            if (s.includes('fail') || s === 'busy' || s === 'no-answer' || s === 'noanswer' || s === 'canceled') return '#fef2f2';
+            if (s === 'in-progress' || s === 'ringing' || s === 'initiated' || s === 'queued') return '#fffbeb';
+            if (s === 'paused') return '#f1f5f9';
+            return '#f8fafc';
+        };
+
         return (
             <div className="page-container">
+                <button onClick={() => setSelectedCampaign(null)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', cursor: 'pointer', color: '#008F4B', fontWeight: '600', fontSize: '0.9rem', marginBottom: '1rem', padding: '0' }}>
+                    <ArrowLeft size={16} /> Back to Campaigns
+                </button>
 
-                <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                        <button onClick={() => setSelectedCampaign(null)} className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors">
-                            <ArrowLeft size={18} />
-                        </button>
+                {/* Header & Stats Grid */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+                    <div className="flex justify-between items-start mb-6">
                         <div>
-                            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                            <h1 className="text-2xl font-bold text-gray-900 mb-2">
                                 {selectedCampaign.friendly_name || 'Campaign Details'}
-                                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${selectedCampaign.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            </h1>
+                            <div className="flex items-center gap-3 text-sm">
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${selectedCampaign.status === 'completed' ? 'bg-green-100 text-green-800' :
                                     selectedCampaign.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'
                                     }`}>
                                     {selectedCampaign.status}
                                 </span>
-                            </h1>
-                            <div className="text-sm text-gray-500 mt-1 flex items-center gap-4">
-                                <span>ID: <span className="font-mono">{selectedCampaign.sid || selectedCampaign.id}</span></span>
-                                <span>created: {new Date(selectedCampaign.date_created || selectedCampaign.created_at).toLocaleString()}</span>
+                                <span className="text-gray-500 font-mono">ID: {selectedCampaign.sid || selectedCampaign.id}</span>
+                                <span className="text-gray-400">|</span>
+                                <span className="text-gray-500 flex items-center gap-1">
+                                    <Calendar size={14} /> {new Date(selectedCampaign.date_created || selectedCampaign.created_at).toLocaleString()}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={handleRecallFailed}
+                                className="flex items-center gap-2 bg-white border border-indigo-600 text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-50 transition-colors text-sm font-semibold"
+                            >
+                                <RefreshCw size={16} /> Recall Failed
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center">
+                                <Phone size={20} />
+                            </div>
+                            <div>
+                                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Calls</div>
+                                <div className="text-xl font-bold text-slate-800">{stats.total}</div>
+                            </div>
+                        </div>
+                        <div className="bg-green-50 p-4 rounded-xl border border-green-200 flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-lg bg-green-100 text-green-600 flex items-center justify-center">
+                                <CheckCircle size={20} />
+                            </div>
+                            <div>
+                                <div className="text-xs font-semibold text-green-600 uppercase tracking-wide">Successful</div>
+                                <div className="text-xl font-bold text-green-800">{stats.success}</div>
+                            </div>
+                        </div>
+                        <div className="bg-red-50 p-4 rounded-xl border border-red-200 flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-lg bg-red-100 text-red-600 flex items-center justify-center">
+                                <AlertCircle size={20} />
+                            </div>
+                            <div>
+                                <div className="text-xs font-semibold text-red-600 uppercase tracking-wide">Failed</div>
+                                <div className="text-xl font-bold text-red-800">{stats.failed}</div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                        <div className="text-gray-500 text-sm">Total Calls</div>
-                        <div className="text-2xl font-bold">{callDetails.length}</div>
-                    </div>
-                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-                        <div className="text-gray-500 text-sm">Failed/Unanswered</div>
-                        <div className="text-2xl font-bold text-red-600">
-                            {callDetails.filter(c => ['failed', 'busy', 'no-answer', 'canceled'].includes(c.Status || c.status)).length}
-                        </div>
-                    </div>
-                    <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center justify-center">
-                        <button
-                            onClick={handleRecallFailed}
-                            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+                {/* Filters */}
+                <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
+                    {['all', 'successful', 'failed', 'pending'].map(f => (
+                        <button key={f} onClick={() => { setCallFilter(f); setCurrentPage(1); }}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${callFilter === f
+                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                                    : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                                }`}
                         >
-                            <RefreshCw size={18} /> Recall Failed
+                            {f.charAt(0).toUpperCase() + f.slice(1)}
+                            {f !== 'all' && <span className="ml-2 opacity-80 text-xs bg-black/10 px-1.5 py-0.5 rounded-full">
+                                {callDetails.filter(c => {
+                                    const s = (c.status || c.Status || '').toLowerCase();
+                                    if (f === 'successful') return s === 'completed' || s === 'answered' || s === 'completed-success';
+                                    if (f === 'failed') return s.includes('fail') || s === 'busy' || s === 'no-answer' || s === 'noanswer' || s === 'canceled';
+                                    if (f === 'pending') return s === 'queued' || s === 'in-progress' || s === 'ringing' || s === 'initiated';
+                                    return false;
+                                }).length}
+                            </span>}
                         </button>
-                    </div>
+                    ))}
                 </div>
 
+                {/* Table */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="p-4 border-b border-gray-100 font-semibold text-gray-700">Call Details</div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="bg-gray-50 text-gray-600 text-sm">
-                                    <th className="p-3">To</th>
-                                    <th className="p-3">From</th>
-                                    <th className="p-3">Status</th>
-                                    <th className="p-3">Duration</th>
-                                    <th className="p-3">Start Time</th>
+                                <tr className="bg-gray-50 text-gray-600 text-sm border-b border-gray-200">
+                                    <th className="p-4 font-semibold">To</th>
+                                    <th className="p-4 font-semibold">From</th>
+                                    <th className="p-4 font-semibold">Status</th>
+                                    <th className="p-4 font-semibold">Duration</th>
+                                    <th className="p-4 font-semibold">Start Time</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {detailsLoading ? (
-                                    <tr><td colSpan="5" className="p-6 text-center">Loading details...</td></tr>
-                                ) : callDetails.length === 0 ? (
-                                    <tr><td colSpan="5" className="p-6 text-center text-gray-500">No calls found.</td></tr>
+                                    <tr><td colSpan="5" className="p-8 text-center text-gray-500 flex flex-col items-center gap-2"><RefreshCw className="animate-spin" /> Loading details...</td></tr>
+                                ) : currentItems.length === 0 ? (
+                                    <tr><td colSpan="5" className="p-8 text-center text-gray-400">No calls match this filter.</td></tr>
                                 ) : (
-                                    callDetails.map((call, idx) => (
-                                        <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50 text-sm">
-                                            <td className="p-3 text-gray-800">{call.To || call.to}</td>
-                                            <td className="p-3 text-gray-600">{call.From || call.from || selectedCampaign.caller_id}</td>
-                                            <td className="p-3">
-                                                <span className={`px-2 py-1 rounded text-xs ${(call.Status || call.status) === 'completed' ? 'bg-green-100 text-green-700' :
-                                                    ['busy', 'no-answer', 'failed'].includes(call.Status || call.status) ? 'bg-red-100 text-red-700' :
-                                                        'bg-gray-100 text-gray-700'
-                                                    }`}>
-                                                    {call.Status || call.status}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 text-gray-600">{call.Duration || call.duration}s</td>
-                                            <td className="p-3 text-gray-500">{new Date(call.StartTime || call.date_created).toLocaleString()}</td>
-                                        </tr>
-                                    ))
+                                    currentItems.map((call, idx) => {
+                                        const status = (call.Status || call.status || '').toLowerCase();
+                                        const isSuccess = status === 'completed' || status === 'answered' || status === 'completed-success';
+
+                                        return (
+                                            <tr key={idx} className="border-b border-gray-50 hover:bg-gray-50 text-sm transition-colors">
+                                                <td className="p-4 text-gray-900 font-mono">{call.To || call.to}</td>
+                                                <td className="p-4 text-gray-500">{call.From || call.from || selectedCampaign.caller_id}</td>
+                                                <td className="p-4">
+                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${isSuccess ? 'bg-green-50 text-green-700 border-green-100' :
+                                                            ['busy', 'no-answer', 'failed', 'canceled'].includes(status) ? 'bg-red-50 text-red-700 border-red-100' :
+                                                                'bg-amber-50 text-amber-700 border-amber-100'
+                                                        }`}>
+                                                        {isSuccess ? <CheckCircle size={10} /> : <AlertCircle size={10} />}
+                                                        {status}
+                                                    </span>
+                                                </td>
+                                                <td className="p-4 text-gray-600 font-mono">{call.Duration || call.duration || 0}s</td>
+                                                <td className="p-4 text-gray-500">{new Date(call.StartTime || call.date_created).toLocaleString()}</td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                        <div className="flex justify-center items-center p-4 gap-4 border-t border-gray-100 bg-gray-50">
+                            <button
+                                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                disabled={currentPage === 1}
+                                className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-colors ${currentPage === 1 ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                    }`}
+                            >
+                                &larr; Prev
+                            </button>
+                            <span className="text-sm text-gray-600 font-medium">
+                                Page {currentPage} of {totalPages}
+                            </span>
+                            <button
+                                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                disabled={currentPage === totalPages}
+                                className={`px-3 py-1.5 rounded-md border text-sm font-medium transition-colors ${currentPage === totalPages ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                    }`}
+                            >
+                                Next &rarr;
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         );
