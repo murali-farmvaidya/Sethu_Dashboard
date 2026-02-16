@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { userAPI } from '../services/api';
-import { Users, MessageSquare, Clock, Search, ArrowUpDown, ChevronLeft, ChevronRight, Lock } from 'lucide-react';
+import { Users, MessageSquare, Clock, Search, ArrowUpDown, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Lock } from 'lucide-react';
 import Header from '../components/Header';
 
 export default function UserDashboard() {
   const [dashboard, setDashboard] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -82,45 +83,52 @@ export default function UserDashboard() {
       <div className="dashboard-layout">
         {/* Left Sidebar */}
         <aside className="dashboard-sidebar">
-          <div className="stats-vertical">
-            <div className="stat-card-vertical">
-              <div className="stat-icon"><Users size={24} /></div>
-              <div className="stat-info">
-                <p className="stat-value">{stats.totalAgents || 0}</p>
-                <p className="stat-label">Assigned Agents</p>
-              </div>
-            </div>
-            <div className="stat-card-vertical">
-              <div className="stat-icon"><MessageSquare size={24} /></div>
-              <div className="stat-info">
-                <p className="stat-value">{stats.totalSessions || 0}</p>
-                <p className="stat-label">Total Sessions</p>
-              </div>
-            </div>
-            <div className="stat-card-vertical">
-              <div className="stat-icon"><Clock size={24} /></div>
-              <div className="stat-info">
-                <p className="stat-value">
-                  {Math.round((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
-                </p>
-                <p className="stat-label">Total Duration</p>
-                <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
-                  Jan 1, 2026 - Now
-                </p>
-              </div>
-            </div>
+          {/* Mobile Toggle Header */}
+          <div className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)' }}>Dashboard Menu</h3>
+            {isSidebarOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </div>
 
-          <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <button className="btn-logout" onClick={() => navigate('/change-password')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--text)' }}>
-              <Lock size={18} /> Change Password
-            </button>
-            <button className="btn-logout" onClick={() => navigate('/login')}>
-              Logout
-            </button>
+          <div className={`sidebar-content ${isSidebarOpen ? 'open' : ''}`}>
+            <div className="stats-vertical">
+              <div className="stat-card-vertical">
+                <div className="stat-icon"><Users size={24} /></div>
+                <div className="stat-info">
+                  <p className="stat-value">{stats.totalAgents || 0}</p>
+                  <p className="stat-label">Assigned Agents</p>
+                </div>
+              </div>
+              <div className="stat-card-vertical">
+                <div className="stat-icon"><MessageSquare size={24} /></div>
+                <div className="stat-info">
+                  <p className="stat-value">{stats.totalSessions || 0}</p>
+                  <p className="stat-label">Total Sessions</p>
+                </div>
+              </div>
+              <div className="stat-card-vertical">
+                <div className="stat-icon"><Clock size={24} /></div>
+                <div className="stat-info">
+                  <p className="stat-value">
+                    {Math.round((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
+                  </p>
+                  <p className="stat-label">Total Duration</p>
+                  <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
+                    Jan 1, 2026 - Now
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button className="btn-logout" onClick={() => navigate('/change-password')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--text)' }}>
+                <Lock size={18} /> Change Password
+              </button>
+              <button className="btn-logout" onClick={() => navigate('/login')}>
+                Logout
+              </button>
+            </div>
           </div>
         </aside>
-
         {/* Main Content */}
         <main className="dashboard-main">
           <header className="dashboard-header-title">
@@ -175,29 +183,31 @@ export default function UserDashboard() {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="pagination" style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px' }}>
-              <button
-                className="pagination-btn"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-              >
-                <ChevronLeft size={18} /> Prev
-              </button>
-              <div className="pagination-info">
-                Page {currentPage} of {totalPages}
+          {
+            totalPages > 1 && (
+              <div className="pagination" style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px' }}>
+                <button
+                  className="pagination-btn"
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft size={18} /> Prev
+                </button>
+                <div className="pagination-info">
+                  Page {currentPage} of {totalPages}
+                </div>
+                <button
+                  className="pagination-btn"
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next <ChevronRight size={18} />
+                </button>
               </div>
-              <button
-                className="pagination-btn"
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-              >
-                Next <ChevronRight size={18} />
-              </button>
-            </div>
-          )}
-        </main>
-      </div>
+            )
+          }
+        </main >
+      </div >
     </>
   );
 }

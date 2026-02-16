@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import api from '../api/client';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, Bot, Download, Copy, Check, ChevronDown, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
+import { ArrowLeft, User, Bot, Download, Copy, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
 import Header from '../components/Header';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 
 export default function SessionDetails() {
     const { sessionId } = useParams();
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [conversation, setConversation] = useState(null);
     const [session, setSession] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -216,94 +217,101 @@ export default function SessionDetails() {
             <div className="dashboard-layout">
                 {/* Left Sidebar - Session Info */}
                 <aside className="dashboard-sidebar">
-                    <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
-                        <h3 style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '1.1rem' }}>Session Details</h3>
+                    {/* Mobile Toggle Header */}
+                    <div className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+                        <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)' }}>Session Details</h3>
+                        {isSidebarOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </div>
 
-                        <div className="info-row">
-                            <span className="info-label">Agent Name</span>
-                            <span className="info-value">{conversation?.agent_name || session?.agent_name || '-'}</span>
-                        </div>
-                        <div className="info-row">
-                            <span className="info-label">Session ID</span>
-                            <span className="info-value font-mono" style={{ fontSize: '0.8rem' }}>{sessionId}</span>
-                        </div>
-                        <div className="info-row">
-                            <span className="info-label">Started</span>
-                            <span className="info-value">{formatDateTime(session?.started_at || conversation?.first_message_at)}</span>
-                        </div>
-                        <div className="info-row">
-                            <span className="info-label">Ended</span>
-                            <span className="info-value">{formatDateTime(session?.ended_at || conversation?.last_message_at)}</span>
-                        </div>
-                        <div className="info-row">
-                            <span className="info-label">Duration</span>
-                            <span className="info-value">{formatSecondsToTime(session?.duration_seconds)}</span>
-                        </div>
-                        <div className="info-row">
-                            <span className="info-label">Startup Time</span>
-                            <span className="info-value">{formatSecondsToTime(session?.bot_start_seconds)}</span>
-                        </div>
-                        <div className="info-row">
-                            <span className="info-label">Total Turns</span>
-                            <span className="info-value">{conversation?.total_turns || conversation?.turns?.length || 0}</span>
-                        </div>
-                        <div className="info-row">
-                            <span className="info-label">Last Synced</span>
-                            <span className="info-value">{formatDateTime(session?.last_synced)}</span>
-                        </div>
+                    <div className={`sidebar-content ${isSidebarOpen ? 'open' : ''}`}>
+                        <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
+                            <h3 className="desktop-header" style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '1.1rem' }}>Session Details</h3>
 
-                        {/* Review Status Section */}
-                        <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #eee' }}>
-                            <h4 style={{ marginBottom: '0.8rem', color: 'var(--primary)', fontSize: '0.95rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <Tag size={16} /> Review Status
-                            </h4>
-                            <select
-                                value={reviewStatus}
-                                onChange={(e) => handleStatusChange(e.target.value)}
-                                disabled={updatingStatus}
-                                style={{
-                                    width: '100%', padding: '8px 12px', borderRadius: '8px', fontSize: '0.9rem',
-                                    border: `2px solid ${statusStyle.border}`,
-                                    background: statusStyle.bg, color: statusStyle.color,
-                                    fontWeight: '600', cursor: updatingStatus ? 'not-allowed' : 'pointer',
-                                    outline: 'none', transition: 'all 0.2s'
-                                }}
-                            >
-                                <option value="pending">📋 Pending</option>
-                                <option value="needs_review">⚠️ Needs Review</option>
-                                <option value="completed">✅ Completed</option>
-                            </select>
-                            {conversation?.reviewed_by && (
-                                <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>
-                                    Reviewed by {conversation.reviewer_email || conversation.reviewed_by}
-                                    {conversation.reviewed_at && ` on ${formatDate(conversation.reviewed_at)}`}
+                            <div className="info-row">
+                                <span className="info-label">Agent Name</span>
+                                <span className="info-value">{conversation?.agent_name || session?.agent_name || '-'}</span>
+                            </div>
+                            <div className="info-row">
+                                <span className="info-label">Session ID</span>
+                                <span className="info-value font-mono" style={{ fontSize: '0.8rem' }}>{sessionId}</span>
+                            </div>
+                            <div className="info-row">
+                                <span className="info-label">Started</span>
+                                <span className="info-value">{formatDateTime(session?.started_at || conversation?.first_message_at)}</span>
+                            </div>
+                            <div className="info-row">
+                                <span className="info-label">Ended</span>
+                                <span className="info-value">{formatDateTime(session?.ended_at || conversation?.last_message_at)}</span>
+                            </div>
+                            <div className="info-row">
+                                <span className="info-label">Duration</span>
+                                <span className="info-value">{formatSecondsToTime(session?.duration_seconds)}</span>
+                            </div>
+                            <div className="info-row">
+                                <span className="info-label">Startup Time</span>
+                                <span className="info-value">{formatSecondsToTime(session?.bot_start_seconds)}</span>
+                            </div>
+                            <div className="info-row">
+                                <span className="info-label">Total Turns</span>
+                                <span className="info-value">{conversation?.total_turns || conversation?.turns?.length || 0}</span>
+                            </div>
+                            <div className="info-row">
+                                <span className="info-label">Last Synced</span>
+                                <span className="info-value">{formatDateTime(session?.last_synced)}</span>
+                            </div>
+
+                            {/* Review Status Section */}
+                            <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #eee' }}>
+                                <h4 style={{ marginBottom: '0.8rem', color: 'var(--primary)', fontSize: '0.95rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <Tag size={16} /> Review Status
+                                </h4>
+                                <select
+                                    value={reviewStatus}
+                                    onChange={(e) => handleStatusChange(e.target.value)}
+                                    disabled={updatingStatus}
+                                    style={{
+                                        width: '100%', padding: '8px 12px', borderRadius: '8px', fontSize: '0.9rem',
+                                        border: `2px solid ${statusStyle.border}`,
+                                        background: statusStyle.bg, color: statusStyle.color,
+                                        fontWeight: '600', cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                                        outline: 'none', transition: 'all 0.2s'
+                                    }}
+                                >
+                                    <option value="pending">📋 Pending</option>
+                                    <option value="needs_review">⚠️ Needs Review</option>
+                                    <option value="completed">✅ Completed</option>
+                                </select>
+                                {conversation?.reviewed_by && (
+                                    <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>
+                                        Reviewed by {conversation.reviewer_email || conversation.reviewed_by}
+                                        {conversation.reviewed_at && ` on ${formatDate(conversation.reviewed_at)}`}
+                                    </div>
+                                )}
+                            </div>
+
+                            {session?.recordingUrl && (
+                                <div className="info-row" style={{ flexDirection: 'column', alignItems: 'flex-start', marginTop: '1.5rem', gap: '0.8rem' }}>
+                                    <span className="info-label" style={{ color: 'var(--primary)', fontWeight: 'bold' }}>Call Recording</span>
+                                    <audio controls preload="auto" style={{ width: '100%', height: '35px' }}
+                                        src={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}>
+                                        Your browser does not support the audio element.
+                                    </audio>
+                                    <a href={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}
+                                        download={`recording-${sessionId}.mp3`} target="_blank" rel="noopener noreferrer"
+                                        style={{ fontSize: '0.8rem', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <Download size={14} /> Download Recording
+                                    </a>
                                 </div>
                             )}
                         </div>
 
-                        {session?.recordingUrl && (
-                            <div className="info-row" style={{ flexDirection: 'column', alignItems: 'flex-start', marginTop: '1.5rem', gap: '0.8rem' }}>
-                                <span className="info-label" style={{ color: 'var(--primary)', fontWeight: 'bold' }}>Call Recording</span>
-                                <audio controls preload="auto" style={{ width: '100%', height: '35px' }}
-                                    src={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}>
-                                    Your browser does not support the audio element.
-                                </audio>
-                                <a href={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}
-                                    download={`recording-${sessionId}.mp3`} target="_blank" rel="noopener noreferrer"
-                                    style={{ fontSize: '0.8rem', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                    <Download size={14} /> Download Recording
-                                </a>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="sidebar-footer">
-                        <button className="btn-logout" onClick={() => navigate(-1)}>
-                            <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back
-                        </button>
+                        <div className="sidebar-footer">
+                            <button className="btn-logout" onClick={() => navigate(-1)}>
+                                <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back
+                            </button>
+                        </div>
                     </div>
                 </aside>
-
                 {/* Main Content - Conversations */}
                 <main className="dashboard-main" style={{
                     display: 'flex', flexDirection: 'column', height: '100vh',
@@ -425,46 +433,48 @@ export default function SessionDetails() {
                     </div>
 
                     {/* Bottom Nav Bar */}
-                    {siblingIds.length > 1 && (
-                        <div style={{
-                            padding: '12px 2rem', borderTop: '1px solid #e5e7eb', background: '#f8fafc',
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-                        }}>
-                            <button
-                                onClick={() => navigateToSession(-1)}
-                                disabled={currentIndex <= 0}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '6px',
-                                    padding: '8px 16px', borderRadius: '8px', fontWeight: '600', fontSize: '0.9rem',
-                                    border: 'none', cursor: currentIndex <= 0 ? 'not-allowed' : 'pointer',
-                                    background: currentIndex <= 0 ? '#e2e8f0' : '#008F4B',
-                                    color: currentIndex <= 0 ? '#94a3b8' : 'white',
-                                    transition: 'all 0.2s'
-                                }}
-                            >
-                                <ChevronLeft size={18} /> Previous Session
-                            </button>
-                            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                                Session {currentIndex + 1} of {siblingIds.length}
-                            </span>
-                            <button
-                                onClick={() => navigateToSession(1)}
-                                disabled={currentIndex >= siblingIds.length - 1}
-                                style={{
-                                    display: 'flex', alignItems: 'center', gap: '6px',
-                                    padding: '8px 16px', borderRadius: '8px', fontWeight: '600', fontSize: '0.9rem',
-                                    border: 'none', cursor: currentIndex >= siblingIds.length - 1 ? 'not-allowed' : 'pointer',
-                                    background: currentIndex >= siblingIds.length - 1 ? '#e2e8f0' : '#008F4B',
-                                    color: currentIndex >= siblingIds.length - 1 ? '#94a3b8' : 'white',
-                                    transition: 'all 0.2s'
-                                }}
-                            >
-                                Next Session <ChevronRight size={18} />
-                            </button>
-                        </div>
-                    )}
-                </main>
-            </div>
+                    {
+                        siblingIds.length > 1 && (
+                            <div style={{
+                                padding: '12px 2rem', borderTop: '1px solid #e5e7eb', background: '#f8fafc',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                            }}>
+                                <button
+                                    onClick={() => navigateToSession(-1)}
+                                    disabled={currentIndex <= 0}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                        padding: '8px 16px', borderRadius: '8px', fontWeight: '600', fontSize: '0.9rem',
+                                        border: 'none', cursor: currentIndex <= 0 ? 'not-allowed' : 'pointer',
+                                        background: currentIndex <= 0 ? '#e2e8f0' : '#008F4B',
+                                        color: currentIndex <= 0 ? '#94a3b8' : 'white',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    <ChevronLeft size={18} /> Previous Session
+                                </button>
+                                <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                    Session {currentIndex + 1} of {siblingIds.length}
+                                </span>
+                                <button
+                                    onClick={() => navigateToSession(1)}
+                                    disabled={currentIndex >= siblingIds.length - 1}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '6px',
+                                        padding: '8px 16px', borderRadius: '8px', fontWeight: '600', fontSize: '0.9rem',
+                                        border: 'none', cursor: currentIndex >= siblingIds.length - 1 ? 'not-allowed' : 'pointer',
+                                        background: currentIndex >= siblingIds.length - 1 ? '#e2e8f0' : '#008F4B',
+                                        color: currentIndex >= siblingIds.length - 1 ? '#94a3b8' : 'white',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    Next Session <ChevronRight size={18} />
+                                </button>
+                            </div>
+                        )
+                    }
+                </main >
+            </div >
         </>
     );
 }

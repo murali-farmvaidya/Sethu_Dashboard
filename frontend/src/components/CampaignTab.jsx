@@ -512,7 +512,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                             </div>
                         </div>
                         {/* Schedule */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="campaign-grid-2">
                             <div>
                                 <label style={{ display: 'block', marginBottom: '6px', fontWeight: '500', fontSize: '0.9rem', color: '#374151' }}>Start Time (Optional)</label>
                                 <input
@@ -541,7 +541,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                         {/* Advanced Options */}
                         <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '12px', border: '1px solid #e5e7eb', marginTop: '0.5rem' }}>
                             <h4 style={{ margin: '0 0 1rem', fontSize: '0.85rem', fontWeight: '700', textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.05em' }}>Advanced Options</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                            <div className="campaign-grid-3">
                                 <div>
                                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '500', fontSize: '0.9rem', color: '#374151' }}>Retries</label>
                                     <input type="number" min="0" max="5" value={formData.retries}
@@ -654,7 +654,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
 
                     {!loading && (showAll ? allCampaigns : campaigns).length > 0 && (
                         <div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                                 {(showAll ? allCampaigns : campaigns)
                                     .slice((currentPage - 1) * 9, currentPage * 9)
                                     .map((camp, i) => {
@@ -827,7 +827,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
 
                     {/* New Header Design: Stats Grid */}
                     <div className="card" style={{ background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', marginBottom: '1.5rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                        <div className="campaign-header-row">
                             <div>
                                 <h3 style={{ margin: '0 0 8px', fontSize: '1.25rem', color: '#1f2937', fontWeight: '700' }}>
                                     {campaignDisplayName(selectedCampaign)}
@@ -840,7 +840,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                                     }}>
                                         {getEffectiveStatus(selectedCampaign)}
                                     </span>
-                                    <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>ID: {selectedCampaign.sid || selectedCampaign.id}</span>
+                                    <span className="campaign-id-text">ID: {selectedCampaign.sid || selectedCampaign.id}</span>
                                 </div>
                             </div>
                             <div style={{ display: 'flex', gap: '10px' }}>
@@ -1029,7 +1029,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
 
                             {/* Pagination Controls */}
                             {totalPages > 1 && (
-                                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem', gap: '1rem', borderTop: '1px solid #e5e7eb', background: '#f9fafb' }}>
+                                <div className="pagination-controls">
                                     <button
                                         onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                         disabled={currentPage === 1}
@@ -1065,7 +1065,72 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                     )}
                 </div>
             )}
+            <style>{`
+                .campaign-grid-2 {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 1rem;
+                }
+                .campaign-grid-3 {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr 1fr;
+                    gap: 1rem;
+                }
+                
+                .campaign-header-row {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: flex-start;
+                    margin-bottom: 1.5rem;
+                    gap: 1rem;
+                }
+                
+                .campaign-id-text {
+                    color: #94a3b8;
+                    font-size: 0.85rem;
+                    word-break: break-all;
+                }
+
+                .pagination-controls {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 1rem;
+                    gap: 1rem;
+                    border-top: 1px solid #e5e7eb;
+                    background: #f9fafb;
+                }
+                
+                @media (max-width: 768px) {
+                    .campaign-grid-2, .campaign-grid-3 {
+                        grid-template-columns: 1fr;
+                    }
+                    .modal-content-campaign {
+                        width: 95% !important;
+                        height: 95vh !important;
+                    }
+                    .table-container {
+                        overflow-x: auto;
+                    }
+                    
+                    .campaign-header-row {
+                        flex-direction: column;
+                        align-items: stretch;
+                    }
+                    
+                    .campaign-id-text {
+                        display: block;
+                        margin-top: 4px;
+                    }
+                    
+                    .pagination-controls {
+                        flex-wrap: wrap;
+                        gap: 0.5rem;
+                        padding: 0.5rem;
+                    }
+                }
+            `}</style>
         </div>
-    )
+    );
 }
 

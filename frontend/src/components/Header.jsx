@@ -53,8 +53,8 @@ export default function Header() {
           </div>
 
           {/* Centered Main Title */}
-          <div className="brand-center" style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', textAlign: 'center', width: 'max-content' }}>
-            <h1 style={{ margin: 0, fontSize: '1.8rem', color: '#008F4B', fontWeight: 'bold', letterSpacing: '-0.5px' }}>
+          <div className="brand-center">
+            <h1>
               {(() => {
                 if (user?.id === 'master_root_0' || user?.isMaster) return 'Sevak Master Dashboard';
                 if (user?.role === 'super_admin') return 'Sevak Super Admin Dashboard';
@@ -316,8 +316,83 @@ export default function Header() {
         }
 
         @media (max-width: 768px) {
+          .app-header {
+            position: sticky;
+            position: -webkit-sticky;
+            top: -50px; /* Allow brand tier (50px) to scroll away, leaving nav tier sticky */
+            height: auto;
+            min-height: 94px; /* 50 + 44 */
+            z-index: 2000;
+          }
+
+          .brand-tier {
+            height: 50px;
+            padding: 0 12px;
+          }
+
+          .nav-tier {
+            height: 44px;
+          }
+
           .brand-text { display: none; }
-          .nav-links { gap: 16px; }
+          .nav-links { gap: 12px; }
+          
+          .brand-center {
+            position: static;
+            transform: none;
+            width: auto;
+            flex: 1;
+            padding: 0 4px;
+            text-align: center;
+            min-width: 0; 
+            display: none !important; /* Hide on mobile per previous request */
+          }
+          
+          .brand-center h1 {
+            font-size: 1rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          
+          .brand-logo, .brand-left img {
+            height: 28px !important;
+            width: auto;
+          }
+          
+          .scrolled-logo-wrapper {
+             display: none !important;
+          }
+          
+          .brand-right {
+             gap: 8px;
+          }
+          
+          .action-icon-btn, .logout-btn-minimal {
+            padding: 4px;
+          }
+
+          .nav-link-btn {
+            font-size: 13px;
+            padding: 0 8px;
+          }
+        }
+        
+        /* Desktop styles for brand center */
+        .brand-center {
+          position: absolute;
+          left: 50%;
+          transform: translateX(-50%);
+          text-align: center;
+          width: max-content;
+        }
+        
+        .brand-center h1 {
+           margin: 0;
+           font-size: 1.8rem;
+           color: #008F4B;
+           font-weight: bold;
+           letter-spacing: -0.5px;
         }
       `}</style>
     </header>

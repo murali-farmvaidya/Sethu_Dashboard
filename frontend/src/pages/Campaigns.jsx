@@ -307,8 +307,8 @@ export default function Campaigns() {
                     {['all', 'successful', 'failed', 'pending'].map(f => (
                         <button key={f} onClick={() => { setCallFilter(f); setCurrentPage(1); }}
                             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${callFilter === f
-                                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
-                                    : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200'
+                                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                                 }`}
                         >
                             {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -354,8 +354,8 @@ export default function Campaigns() {
                                                 <td className="p-4 text-gray-500">{call.From || call.from || selectedCampaign.caller_id}</td>
                                                 <td className="p-4">
                                                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider border ${isSuccess ? 'bg-green-50 text-green-700 border-green-100' :
-                                                            ['busy', 'no-answer', 'failed', 'canceled'].includes(status) ? 'bg-red-50 text-red-700 border-red-100' :
-                                                                'bg-amber-50 text-amber-700 border-amber-100'
+                                                        ['busy', 'no-answer', 'failed', 'canceled'].includes(status) ? 'bg-red-50 text-red-700 border-red-100' :
+                                                            'bg-amber-50 text-amber-700 border-amber-100'
                                                         }`}>
                                                         {isSuccess ? <CheckCircle size={10} /> : <AlertCircle size={10} />}
                                                         {status}
@@ -687,7 +687,7 @@ export default function Campaigns() {
 
 
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Caller ID</label>
                                     <input

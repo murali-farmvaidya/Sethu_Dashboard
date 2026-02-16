@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { adminAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
-import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff, CheckSquare, Square, MinusSquare } from 'lucide-react';
+import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff, CheckSquare, Square, MinusSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import Header from '../components/Header';
 
@@ -35,6 +35,7 @@ const confirmToast = (message, onConfirm) => {
 
 export default function Dashboard() {
     const { user } = useAuth();
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [agents, setAgents] = useState([]);
     const [stats, setStats] = useState({ totalAgents: 0, totalSessions: 0, successRate: 0 });
     const [loading, setLoading] = useState(true);
@@ -307,65 +308,73 @@ export default function Dashboard() {
             <div className="dashboard-layout">
                 {/* Left Sidebar */}
                 <aside className="dashboard-sidebar">
-                    <div className="stats-vertical">
-                        <div className="stat-card-vertical">
-                            <div className="stat-icon"><Users size={24} /></div>
-                            <div className="stat-info">
-                                <p className="stat-value">{stats.totalAgents || 0}</p>
-                                <p className="stat-label">Total Agents</p>
-                                {user?.id === 'master_root_0' && stats.hiddenStats?.agents > 0 && (
-                                    <p className="stat-sublabel" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '2px' }}>
-                                        (+{stats.hiddenStats.agents} hidden)
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                        <div className="stat-card-vertical">
-                            <div className="stat-icon"><MessageSquare size={24} /></div>
-                            <div className="stat-info">
-                                <p className="stat-value">{stats.totalSessions || 0}</p>
-                                <p className="stat-label">Total Sessions</p>
-                            </div>
-                        </div>
-                        <div className="stat-card-vertical">
-                            <div className="stat-icon"><Clock size={24} /></div>
-                            <div className="stat-info">
-                                <p className="stat-value">
-                                    {Math.floor((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
-                                </p>
-                                <p className="stat-label">Total Usage</p>
-                                <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
-                                    Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                </p>
-                            </div>
-                        </div>
+                    {/* Mobile Toggle Header */}
+                    <div className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+                        <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)' }}>Dashboard Menu</h3>
+                        {isSidebarOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                     </div>
 
-                    <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                        {user?.id === 'master_root_0' && (
-                            <button
-                                className="btn-logout"
-                                onClick={() => navigate('/master/status')}
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--primary)' }}
-                            >
-                                <Activity size={18} /> System Status
+                    <div className={`sidebar-content ${isSidebarOpen ? 'open' : ''}`}>
+                        <div className="stats-vertical">
+                            <div className="stat-card-vertical">
+                                <div className="stat-icon"><Users size={24} /></div>
+                                <div className="stat-info">
+                                    <p className="stat-value">{stats.totalAgents || 0}</p>
+                                    <p className="stat-label">Total Agents</p>
+                                    {user?.id === 'master_root_0' && stats.hiddenStats?.agents > 0 && (
+                                        <p className="stat-sublabel" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '2px' }}>
+                                            (+{stats.hiddenStats.agents} hidden)
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="stat-card-vertical">
+                                <div className="stat-icon"><MessageSquare size={24} /></div>
+                                <div className="stat-info">
+                                    <p className="stat-value">{stats.totalSessions || 0}</p>
+                                    <p className="stat-label">Total Sessions</p>
+                                </div>
+                            </div>
+                            <div className="stat-card-vertical">
+                                <div className="stat-icon"><Clock size={24} /></div>
+                                <div className="stat-info">
+                                    <p className="stat-value">
+                                        {Math.floor((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
+                                    </p>
+                                    <p className="stat-label">Total Usage</p>
+                                    <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
+                                        Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {user?.id === 'master_root_0' && (
+                                <button
+                                    className="btn-logout"
+                                    onClick={() => navigate('/master/status')}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--primary)' }}
+                                >
+                                    <Activity size={18} /> System Status
+                                </button>
+                            )}
+                            {user?.id === 'master_root_0' && (
+                                <button
+                                    className="btn-logout"
+                                    onClick={() => setRecycleBinOpen(true)}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: '#64748b' }}
+                                >
+                                    <RotateCcw size={18} /> Recycle Bin
+                                </button>
+                            )}
+                            <button className="btn-logout" onClick={() => navigate('/change-password')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--text)' }}>
+                                <Lock size={18} /> Change Password
                             </button>
-                        )}
-                        {user?.id === 'master_root_0' && (
-                            <button
-                                className="btn-logout"
-                                onClick={() => setRecycleBinOpen(true)}
-                                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: '#64748b' }}
-                            >
-                                <RotateCcw size={18} /> Recycle Bin
+                            <button className="btn-logout" onClick={() => { localStorage.clear(); navigate('/login'); }}>
+                                Logout
                             </button>
-                        )}
-                        <button className="btn-logout" onClick={() => navigate('/change-password')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--text)' }}>
-                            <Lock size={18} /> Change Password
-                        </button>
-                        <button className="btn-logout" onClick={() => { localStorage.clear(); navigate('/login'); }}>
-                            Logout
-                        </button>
+                        </div>
                     </div>
                 </aside>
 
