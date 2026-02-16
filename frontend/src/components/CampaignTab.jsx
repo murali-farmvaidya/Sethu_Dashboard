@@ -512,7 +512,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                             </div>
                         </div>
                         {/* Schedule */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="campaign-grid-2">
                             <div>
                                 <label style={{ display: 'block', marginBottom: '6px', fontWeight: '500', fontSize: '0.9rem', color: '#374151' }}>Start Time (Optional)</label>
                                 <input
@@ -541,7 +541,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                         {/* Advanced Options */}
                         <div style={{ background: '#f9fafb', padding: '1.5rem', borderRadius: '12px', border: '1px solid #e5e7eb', marginTop: '0.5rem' }}>
                             <h4 style={{ margin: '0 0 1rem', fontSize: '0.85rem', fontWeight: '700', textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.05em' }}>Advanced Options</h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                            <div className="campaign-grid-3">
                                 <div>
                                     <label style={{ display: 'block', marginBottom: '6px', fontWeight: '500', fontSize: '0.9rem', color: '#374151' }}>Retries</label>
                                     <input type="number" min="0" max="5" value={formData.retries}
@@ -654,7 +654,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
 
                     {!loading && (showAll ? allCampaigns : campaigns).length > 0 && (
                         <div>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
                                 {(showAll ? allCampaigns : campaigns)
                                     .slice((currentPage - 1) * 9, currentPage * 9)
                                     .map((camp, i) => {
@@ -1065,7 +1065,32 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                     )}
                 </div>
             )}
+            <style>{`
+                .campaign-grid-2 {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 1rem;
+                }
+                .campaign-grid-3 {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr 1fr;
+                    gap: 1rem;
+                }
+                
+                @media (max-width: 768px) {
+                    .campaign-grid-2, .campaign-grid-3 {
+                        grid-template-columns: 1fr;
+                    }
+                    .modal-content-campaign {
+                        width: 95% !important;
+                        height: 95vh !important;
+                    }
+                    .table-container {
+                        overflow-x: auto;
+                    }
+                }
+            `}</style>
         </div>
-    )
+    );
 }
 

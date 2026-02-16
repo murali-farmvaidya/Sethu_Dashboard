@@ -1100,6 +1100,73 @@ export default function AdminUsers() {
           50% { opacity: 1; }
           100% { opacity: 0.6; }
         }
+
+        /* Mobile Responsiveness */
+        @media (max-width: 768px) {
+          .admin-users-page {
+            padding: 16px;
+          }
+
+          .page-header {
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 24px;
+          }
+
+          .page-header h1 {
+            font-size: 24px;
+          }
+
+          .admin-controls {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+          }
+
+          .tabs {
+            overflow-x: auto;
+            white-space: nowrap;
+            padding-bottom: 8px; /* space for scrollbar */
+            max-width: 100%;
+          }
+          
+          .tab-btn {
+            flex-shrink: 0;
+          }
+
+          .filters {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .filters select {
+            width: 100%;
+            min-width: 0;
+          }
+          
+          .create-button {
+            justify-content: center;
+          }
+          
+          /* Modal Mobile */
+          .modal-content {
+            width: 95%;
+            padding: 20px;
+            max-height: 85vh;
+            overflow-y: auto;
+          }
+
+          .users-table-container {
+            overflow-x: auto;
+          }
+           
+          /* Table horizontal scroll */
+          .users-table th, .users-table td {
+            white-space: nowrap;
+            padding: 12px 8px;
+            font-size: 13px;
+          }
+        }
       `}</style>
     </>
   );
