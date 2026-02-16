@@ -122,45 +122,73 @@ h6 {
   /* Prevent text wrapping */
 }
 
-/* Mobile responsive header */
+/* Mobile responsive login page */
 @media (max-width: 768px) {
+  .login-page {
+    flex-direction: column !important;
+  }
+
+  .login-left {
+    display: none !important;
+  }
+
+  .login-right {
+    flex: 1;
+    width: 100% !important;
+    min-height: 100vh;
+    /* Full screen height */
+    padding: 1.5rem;
+    justify-content: center;
+    /* Center it vertically */
+    display: flex;
+    flex-direction: column;
+  }
+
   .login-right-header {
-    position: relative;
-    /* Changed from absolute to flow with content */
+    position: relative !important;
     top: auto;
     left: auto;
     right: auto;
     width: 100%;
     height: auto;
-    min-height: 80px;
-    padding: 20px;
-    flex-wrap: wrap;
+    min-height: auto;
+    padding: 0 0 1.5rem 0;
+    flex-direction: column;
     justify-content: center;
-    gap: 12px;
+    gap: 8px;
     background: transparent;
-    /* Remove background on mobile to blend */
     border-bottom: none;
-    margin-bottom: 2rem;
+    margin-bottom: 0;
   }
 
   .login-header-logo {
-    height: 48px;
-    /* Keep logo readable */
+    height: 40px;
+    /* Slightly smaller logo */
+    margin-bottom: 4px;
   }
 
   .login-header-title {
-    font-size: 16px;
+    font-size: 1.2rem;
     text-align: center;
     width: 100%;
     white-space: normal;
-    /* Allow wrapping on very small screens */
   }
 
-  .login-right {
-    justify-content: flex-start;
-    /* Align to top */
-    padding-top: 2rem;
-    /* Add top padding since header is relative */
+  .login-form-container {
+    width: 100%;
+    max-width: 100%;
+    padding: 0;
+  }
+
+  /* Ensure inputs have full width */
+  .search-input {
+    font-size: 16px;
+    /* Prevent zoom on iOS */
+  }
+
+  /* Fix sliced video head - focus top */
+  .login-bg-video {
+    object-position: center top !important;
   }
 }
 
@@ -1022,6 +1050,19 @@ h6 {
   color: var(--text-muted);
 }
 
+/* Sidebar Responsive Styles */
+.sidebar-toggle {
+  display: none;
+}
+
+.sidebar-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+  height: 100%;
+}
+
 /* ==================== TABLET RESPONSIVE ==================== */
 @media (max-width: 1200px) {
   .agents-grid {
@@ -1084,7 +1125,8 @@ h6 {
   .dashboard-sidebar {
     width: 100%;
     min-width: 100%;
-    height: auto;
+    height: auto !important;
+    /* Allow auto height */
     position: relative;
     top: 0;
     border-right: none;
@@ -1092,6 +1134,42 @@ h6 {
     padding: 1rem;
     overflow: visible;
     z-index: 10;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Mobile Toggle Header */
+  .sidebar-toggle {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  /* Hide content by default on mobile */
+  .sidebar-content {
+    display: none;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+    border-top: 1px solid #f0f0f0;
+    padding-top: 1rem;
+  }
+
+  /* Show when open */
+  .sidebar-content.open {
+    display: flex;
+  }
+
+  /* Show when open */
+  .sidebar-content.open {
+    display: flex;
+  }
+
+  .desktop-header {
+    display: none !important;
   }
 
   /* Compact Stats in Sidebar */

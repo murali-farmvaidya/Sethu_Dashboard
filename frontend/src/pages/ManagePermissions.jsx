@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import api from '../api/client';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X } from 'lucide-react';
+import { ArrowLeft, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
 import Header from '../components/Header';
 
 export default function ManagePermissions() {
     const [users, setUsers] = useState([]);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState({});
     const navigate = useNavigate();
@@ -97,25 +98,33 @@ export default function ManagePermissions() {
             <Header />
             <div className="dashboard-layout">
                 <aside className="dashboard-sidebar">
-                    <div className="session-info-sidebar" style={{ flex: 1, padding: '1.5rem' }}>
-                        <h3 style={{ marginBottom: '1rem', color: 'var(--primary)' }}>Mark Permissions</h3>
-                        <p style={{ fontSize: '0.9rem', color: '#666', lineHeight: '1.6' }}>
-                            Control which users can mark sessions as "Needs Review" or "Completed" for their assigned agents.
-                        </p>
-                        <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#f8f9fa', borderRadius: '8px' }}>
-                            <h4 style={{ fontSize: '0.85rem', color: '#444', marginBottom: '0.8rem' }}>How it Works</h4>
-                            <ul style={{ fontSize: '0.8rem', color: '#666', lineHeight: '1.8', paddingLeft: '1.2rem' }}>
-                                <li>Each user sees only their assigned agents</li>
-                                <li>Toggle checkboxes to grant/revoke mark permissions</li>
-                                <li>Changes apply immediately</li>
-                                <li>Admins already have full permissions</li>
-                            </ul>
-                        </div>
+                    {/* Mobile Toggle Header */}
+                    <div className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+                        <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)' }}>Mark Permissions</h3>
+                        {isSidebarOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
                     </div>
-                    <div className="sidebar-footer">
-                        <button className="btn-logout" onClick={() => navigate('/admin/users')}>
-                            <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back to Users
-                        </button>
+
+                    <div className={`sidebar-content ${isSidebarOpen ? 'open' : ''}`}>
+                        <div className="session-info-sidebar" style={{ flex: 1, padding: '1.5rem' }}>
+                            <h3 className="desktop-header" style={{ marginBottom: '1rem', color: 'var(--primary)' }}>Mark Permissions</h3>
+                            <p style={{ fontSize: '0.9rem', color: '#666', lineHeight: '1.6' }}>
+                                Control which users can mark sessions as "Needs Review" or "Completed" for their assigned agents.
+                            </p>
+                            <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#f8f9fa', borderRadius: '8px' }}>
+                                <h4 style={{ fontSize: '0.85rem', color: '#444', marginBottom: '0.8rem' }}>How it Works</h4>
+                                <ul style={{ fontSize: '0.8rem', color: '#666', lineHeight: '1.8', paddingLeft: '1.2rem' }}>
+                                    <li>Each user sees only their assigned agents</li>
+                                    <li>Toggle checkboxes to grant/revoke mark permissions</li>
+                                    <li>Changes apply immediately</li>
+                                    <li>Admins already have full permissions</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div className="sidebar-footer">
+                            <button className="btn-logout" onClick={() => navigate('/admin/users')}>
+                                <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back to Users
+                            </button>
+                        </div>
                     </div>
                 </aside>
 
@@ -133,7 +142,7 @@ export default function ManagePermissions() {
                                 No users found. Create regular users and assign them to agents first.
                             </div>
                         ) : (
-                            <div style={{ width: '100%' }}>
+                            <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                                 <table style={{
                                     width: '100%',
                                     borderCollapse: 'collapse',
