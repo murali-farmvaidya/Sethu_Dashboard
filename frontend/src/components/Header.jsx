@@ -42,7 +42,14 @@ export default function Header() {
     if (user) {
       fetchNotifications();
       const interval = setInterval(fetchNotifications, 60000); // Poll every minute
-      return () => clearInterval(interval);
+
+      const onRefresh = () => fetchNotifications();
+      window.addEventListener('refresh-notifications', onRefresh);
+
+      return () => {
+        clearInterval(interval);
+        window.removeEventListener('refresh-notifications', onRefresh);
+      };
     }
   }, [user]);
 
@@ -151,9 +158,12 @@ export default function Header() {
                                 </button>
                               )}
                             </div>
-                            <p style={{ margin: 0, fontSize: '12px', color: '#475569', lineHeight: '1.4' }}>{n.message}</p>
+                            <p
+                              style={{ margin: 0, fontSize: '12px', color: '#475569', lineHeight: '1.5' }}
+                              dangerouslySetInnerHTML={{ __html: n.message }}
+                            />
                             <span style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>
-                              {new Date(n.created_at).toLocaleString()}
+                              {new Date(n.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
                             </span>
                           </div>
                         ))

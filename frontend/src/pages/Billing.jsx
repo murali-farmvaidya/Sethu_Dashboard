@@ -23,6 +23,7 @@ const Billing = () => {
     const [transactionsPagination, setTransactionsPagination] = useState({ total: 0, totalPages: 1 });
     const [users, setUsers] = useState([]);
     const [activeTab, setActiveTab] = useState('overview'); // overview | history | admin
+    const [paymentTab, setPaymentTab] = useState('topup'); // topup | extend
     const [filterTarget, setFilterTarget] = useState(authUser?.id || '');
     const [adjAmount, setAdjAmount] = useState('');
     const [adjTarget, setAdjTarget] = useState('');
@@ -97,7 +98,13 @@ const Billing = () => {
                 handler: async function (response) {
                     try {
                         const v = await paymentAPI.verifyPayment({ order_id: response.razorpay_order_id, payment_id: response.razorpay_payment_id, signature: response.razorpay_signature });
-                        if (v.data.success) { toast.success('Payment successful! 🎉'); fetchBalances(); fetchTransactions(); if (refreshUser) refreshUser(); }
+                        if (v.data.success) {
+                            toast.success(v.data.message || 'Payment successful! 🎉');
+                            fetchBalances();
+                            fetchTransactions();
+                            if (refreshUser) refreshUser();
+                            window.dispatchEvent(new Event('refresh-notifications'));
+                        }
                         else toast.error('Payment verification failed');
                     } catch { toast.error('Payment verification failed'); }
                 },
@@ -124,6 +131,7 @@ const Billing = () => {
                 setAdjAmount('');
                 fetchBalances(); fetchTransactions(); fetchUsers();
                 if (refreshUser) refreshUser();
+                window.dispatchEvent(new Event('refresh-notifications'));
             } else toast.error(res.data.message || 'Failed');
         } catch { toast.error('Error updating credits'); }
     };
@@ -136,11 +144,12 @@ const Billing = () => {
             const res = await paymentAPI.getTransactionHistory('all', 1, 500, '', '', analyticsUser);
             if (res.data?.success) {
                 const rows = res.data.data || [];
-                const start = new Date(analyticsStart);
-                const end = new Date(analyticsEnd); end.setHours(23, 59, 59, 999);
+                const localStart = new Date(analyticsStart + 'T00:00:00');
+                const localEnd = new Date(analyticsEnd + 'T23:59:59.999');
                 const filtered = rows.filter(r => {
-                    const d = new Date(r.created_at);
-                    return d >= start && d <= end;
+                    const dStr = r.created_at + (r.created_at.includes('Z') ? '' : 'Z');
+                    const d = new Date(dStr);
+                    return d >= localStart && d <= localEnd;
                 });
                 // debit_amount = credits consumed (minutes * 3.5)
                 const totalCreditsConsumed = filtered
@@ -172,7 +181,7 @@ const Billing = () => {
     );
 
     const isSubscriptionActive = balances?.subscription_expiry && new Date(balances.subscription_expiry) > new Date();
-    const expiryDate = balances?.subscription_expiry ? new Date(balances.subscription_expiry).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A';
+    const expiryDate = balances?.subscription_expiry ? new Date(balances.subscription_expiry).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, ' ') : 'N/A';
     const balance = parseFloat(balances?.minutes_balance || 0);
     const isLowBalance = balance < 100;
 
@@ -215,248 +224,244 @@ const Billing = () => {
                 </div>
 
                 {/* ==================== OVERVIEW TAB ==================== */}
-                {activeTab === 'overview' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 480px))', gap: '2rem', justifyContent: 'center' }}>
-                        {/* Subscription Card — redesigned hero layout */}
-                        <div style={{ background: 'white', borderRadius: '20px', border: '1px solid var(--border)', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                {/* ==================== OVERVIEW TAB ==================== */}
+                {activeTab === 'overview' && (() => {
+                    const CREDIT_AMOUNTS = [1000, 2000, 5000, 10000, 15000, 20000, 30000, 40000, 50000, 75000, 100000];
+                    return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '900px', margin: '0 auto', width: '100%' }}>
 
-                            {/* Hero gradient banner */}
-                            <div style={{ background: 'linear-gradient(135deg, #008F4B 0%, #006830 60%, #005526 100%)', padding: '1.75rem 2rem', position: 'relative', overflow: 'hidden', height: '210px', display: 'flex', flexDirection: 'column' }}>
-                                {/* decorative circles */}
-                                <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
-                                <div style={{ position: 'absolute', bottom: -20, right: 40, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative' }}>
-                                    <div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                            <div style={{ width: 34, height: 34, borderRadius: '10px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <Shield size={18} color="white" />
-                                            </div>
-                                            <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Platform Access</span>
-                                        </div>
-                                        <div style={{ fontSize: '1.6rem', fontWeight: '900', color: 'white', lineHeight: 1.1 }}>Admin Premium</div>
-                                        <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.75)', marginTop: '4px' }}>Monthly Subscription Plan</div>
-                                    </div>
-                                    <span style={{
-                                        padding: '5px 14px', borderRadius: '20px', fontSize: '0.72rem',
-                                        fontWeight: '700', letterSpacing: '0.04em',
-                                        background: isSubscriptionActive ? 'rgba(255,255,255,0.22)' : 'rgba(239,68,68,0.35)',
-                                        color: 'white', border: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap'
-                                    }}>
-                                        {isSubscriptionActive ? 'ACTIVE' : 'EXPIRED'}
-                                    </span>
-                                </div>
-
-                                {/* Price row inside banner */}
-                                <div style={{ marginTop: '1.25rem', display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-                                    <span style={{ fontSize: '2rem', fontWeight: '900', color: 'white' }}>₹6,500</span>
-                                    <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.9rem' }}> / month</span>
-                                </div>
-                            </div>
-
-                            {/* Body */}
-                            <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', flex: 1, gap: '1.25rem' }}>
-
-                                {/* Plan meta */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e9ecef' }}>
-                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.83rem' }}>Current Plan</span>
-                                        <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>Admin Premium</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e9ecef' }}>
-                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.83rem' }}>Valid Until</span>
-                                        <span style={{ fontWeight: '600', fontSize: '0.875rem', color: isSubscriptionActive ? 'var(--primary)' : '#ef4444' }}>{expiryDate}</span>
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e9ecef' }}>
-                                        <span style={{ color: 'var(--text-muted)', fontSize: '0.83rem' }}>Billing Cycle</span>
-                                        <span style={{ fontWeight: '600', fontSize: '0.875rem' }}>Monthly</span>
-                                    </div>
-                                </div>
-
-                                {/* Features */}
+                            {/* ── Account Summary Bar ── */}
+                            <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', padding: '1.25rem 1.75rem', display: 'flex', alignItems: 'center', gap: '2.5rem', flexWrap: 'wrap', boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}>
                                 <div>
-                                    <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.06em' }}>Key Features</div>
-                                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '9px' }}>
-                                        {['1 Dedicated Phone Number', '24x7 Availability', '2 Call Lines Included', 'Live Call Analytics', '1000 Free Minutes', 'Outbound Campaigns'].map(f => (
-                                            <li key={f} style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.875rem', color: 'var(--text)' }}>
-                                                <CheckCircle size={15} color="var(--primary)" style={{ flexShrink: 0 }} /> {f}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-
-                                {/* CTA Button */}
-                                <div style={{ marginTop: 'auto', paddingTop: '0.5rem' }}>
-                                    <button
-                                        onClick={() => handlePayment('subscription')}
-                                        disabled={processing || isSubscriptionActive}
-                                        style={{
-                                            width: '100%', padding: '13px 0', borderRadius: '10px', border: 'none',
-                                            background: 'linear-gradient(135deg, #008F4B, #006830)',
-                                            color: 'white', fontWeight: '700',
-                                            cursor: processing || isSubscriptionActive ? 'default' : 'pointer',
-                                            opacity: processing ? 0.7 : 1,
-                                            display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px',
-                                            fontSize: '0.95rem', transition: 'all 0.2s'
-                                        }}
-                                    >
-                                        {processing ? <div className="spinner-small" /> : <Zap size={16} />}
-                                        {processing ? 'Processing...' : isSubscriptionActive ? 'Plan Active' : 'Renew Subscription'}
-                                    </button>
-                                    <p style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '8px', marginBottom: 0 }}>Auto-renews monthly · ₹6,500 / month</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Call Credits Card — hero banner design */}
-                        <div style={{ background: 'white', borderRadius: '20px', border: '1px solid var(--border)', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-
-                            {/* Hero gradient banner */}
-                            <Link to="/admin/usage-history" style={{ textDecoration: 'none', display: 'block' }}>
-                                <div style={{ background: isLowBalance ? 'linear-gradient(135deg, #b45309 0%, #d97706 60%, #f59e0b 100%)' : 'linear-gradient(135deg, #d97706 0%, #f59e0b 60%, #fbbf24 100%)', padding: '1.75rem 2rem', position: 'relative', overflow: 'hidden', cursor: 'pointer', height: '210px', display: 'flex', flexDirection: 'column' }}
-                                    onMouseOver={e => e.currentTarget.style.filter = 'brightness(1.05)'}
-                                    onMouseOut={e => e.currentTarget.style.filter = 'brightness(1)'}>
-                                    {/* decorative circles */}
-                                    <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
-                                    <div style={{ position: 'absolute', bottom: -20, right: 40, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative' }}>
-                                        <div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                                                <div style={{ width: 34, height: 34, borderRadius: '10px', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <PhoneCall size={18} color="white" />
-                                                </div>
-                                                <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.8rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Call Credits</span>
-                                            </div>
-                                            <div style={{ fontSize: '0.82rem', color: 'rgba(255,255,255,0.75)', marginBottom: '6px' }}>Prepaid Credits Wallet</div>
-                                        </div>
-                                        <span style={{
-                                            padding: '5px 14px', borderRadius: '20px', fontSize: '0.72rem',
-                                            fontWeight: '700', letterSpacing: '0.04em',
-                                            background: 'rgba(255,255,255,0.22)',
-                                            color: 'white', border: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap'
-                                        }}>
-                                            {isLowBalance ? 'LOW BALANCE' : 'OK'}
-                                        </span>
-                                    </div>
-
-                                    {/* Big balance in banner */}
-                                    <div style={{ marginTop: '0.5rem', position: 'relative' }}>
-                                        <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Available Balance</p>
-                                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                                            <span style={{ fontSize: '2.4rem', fontWeight: '900', color: 'white', lineHeight: 1 }}>{balance.toFixed(2)}</span>
-                                            <span style={{ fontSize: '1rem', fontWeight: '500', color: 'rgba(255,255,255,0.75)' }}>credits</span>
-                                        </div>
-                                        <p style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.6)', marginTop: '4px' }}>Click to view usage ledger →</p>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '2px', fontWeight: '500' }}>A/C Balance</div>
+                                    <div style={{ fontSize: '1.8rem', fontWeight: '800', color: '#008F4B', letterSpacing: '-0.5px' }}>
+                                        ₹{balance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </div>
                                 </div>
-                            </Link>
-
-                            {/* Body */}
-                            <div style={{ padding: '2rem', display: 'flex', flexDirection: 'column', flex: 1, gap: '1.25rem' }}>
-
-                                {/* Low balance warning */}
+                                <div style={{ width: '1px', height: '42px', background: '#e2e8f0', flexShrink: 0 }} />
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '2px', fontWeight: '500' }}>Valid Till</div>
+                                    <div style={{ fontSize: '1rem', fontWeight: '700', color: isSubscriptionActive ? '#1e293b' : '#ef4444' }}>
+                                        {expiryDate}
+                                    </div>
+                                    <div style={{ fontSize: '0.7rem', marginTop: '2px', fontWeight: '600', color: isSubscriptionActive ? '#008F4B' : '#ef4444' }}>
+                                        {isSubscriptionActive ? 'Active' : 'Expired'}
+                                    </div>
+                                </div>
                                 {isLowBalance && (
-                                    <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: '10px', padding: '10px 14px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                                        <AlertCircle size={16} color="#d97706" style={{ flexShrink: 0, marginTop: '1px' }} />
-                                        <p style={{ margin: 0, fontSize: '0.8rem', color: '#92400e', lineHeight: 1.4 }}>
-                                            <strong>Low Balance!</strong> Calls will be blocked when balance reaches zero. Recharge now.
-                                        </p>
+                                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px', background: '#fef9c3', border: '1px solid #fde047', borderRadius: '10px', padding: '8px 14px' }}>
+                                        <AlertCircle size={15} color="#d97706" />
+                                        <span style={{ fontSize: '0.78rem', color: '#92400e', fontWeight: '600' }}>Low Balance — Recharge now</span>
                                     </div>
                                 )}
+                            </div>
 
-                                {/* Wallet Benefits */}
-                                <div>
-                                    <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.06em' }}>Wallet Benefits</div>
-                                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                        {[
-                                            'Pay-as-you-go consumption',
-                                            'Credits never expire',
-                                            'Real-time usage tracking',
-                                            'Instant balance updates'
-                                        ].map(f => (
-                                            <li key={f} style={{ display: 'flex', gap: '10px', alignItems: 'center', fontSize: '0.82rem', color: 'var(--text)' }}>
-                                                <CheckCircle size={14} color="#d97706" style={{ flexShrink: 0 }} /> {f}
-                                            </li>
-                                        ))}
-                                    </ul>
+                            {/* ── Auto-renewal note ── */}
+                            <div style={{ fontSize: '0.8rem', color: '#475569', padding: '0 4px', lineHeight: 1.5 }}>
+                                When your validity expires, 6,500 credits are automatically deducted from your balance to renew platform access for 30 days. Keep your balance topped up.{' '}
+                                <span style={{ color: '#008F4B', fontWeight: '600', cursor: 'pointer' }}>Learn more</span>
+                            </div>
+
+                            {/* ── Main Payment Panel ── */}
+                            <div style={{ background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}>
+
+                                {/* Panel Header */}
+                                <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <CreditCard size={16} color="#008F4B" />
+                                    <span style={{ fontWeight: '700', color: '#008F4B', fontSize: '0.9rem' }}>Online Payment</span>
                                 </div>
 
-                                {/* Recharge amount */}
-                                <div>
-                                    <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginBottom: '8px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Recharge Amount (INR)</label>
-                                    <div style={{ display: 'flex', alignItems: 'center', background: '#f9fafb', border: '2px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
-                                        <span style={{ padding: '12px 14px', background: '#e5e7eb', color: 'var(--text-muted)', fontWeight: '700', borderRight: '1px solid var(--border)' }}>₹</span>
-                                        <input
-                                            type="number" min="1000" value={rechargeAmount || ''}
-                                            onChange={(e) => setRechargeAmount(Number(e.target.value))}
-                                            style={{ width: '100%', padding: '12px', border: 'none', background: 'transparent', outline: 'none', fontSize: '1rem', fontWeight: '600', color: 'var(--text)' }}
-                                        />
-                                    </div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
-                                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Min: ₹1,000</span>
-                                        <span style={{ fontSize: '0.75rem', color: '#d97706', fontWeight: '700' }}>= {rechargeAmount || 0} Credits</span>
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                                        {[1000, 2000, 5000, 10000].map(v => (
-                                            <button key={v} onClick={() => setRechargeAmount(v)} style={{
-                                                flex: 1, padding: '7px 0', fontSize: '0.75rem', fontWeight: '600',
-                                                borderRadius: '8px',
-                                                border: `1.5px solid ${rechargeAmount === v ? '#d97706' : 'var(--border)'}`,
-                                                background: rechargeAmount === v ? 'rgba(217,119,6,0.08)' : 'white',
-                                                color: rechargeAmount === v ? '#d97706' : 'var(--text-muted)',
-                                                cursor: 'pointer', transition: 'all 0.15s'
+                                <div style={{ padding: '1.5rem' }}>
+                                    {/* ── 3 Payment Tabs ── */}
+                                    <div style={{ display: 'flex', gap: '0', marginBottom: '1.5rem', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', width: 'fit-content' }}>
+                                        {[
+                                            { id: 'topup', label: 'Top-up for extra credits' },
+                                            { id: 'extend', label: 'Extend validity (₹9,999)' },
+                                        ].map((t, idx) => (
+                                            <button key={t.id} onClick={() => setPaymentTab(t.id)} style={{
+                                                padding: '9px 20px',
+                                                border: 'none',
+                                                borderLeft: idx > 0 ? '1px solid #e2e8f0' : 'none',
+                                                cursor: 'pointer',
+                                                fontSize: '0.82rem',
+                                                fontWeight: '600',
+                                                background: paymentTab === t.id ? '#008F4B' : '#f8fafc',
+                                                color: paymentTab === t.id ? 'white' : '#64748b',
+                                                transition: 'all 0.15s',
+                                                whiteSpace: 'nowrap'
                                             }}>
-                                                {v >= 1000 ? `₹${v / 1000}K` : `₹${v}`}
+                                                {t.label}
                                             </button>
                                         ))}
                                     </div>
-                                </div>
 
-                                {/* Recharge button */}
-                                <div style={{ marginTop: 'auto', paddingTop: '0.25rem' }}>
-                                    <button
-                                        onClick={() => handlePayment('minutes')}
-                                        disabled={processing}
-                                        style={{
-                                            width: '100%', padding: '13px 0', borderRadius: '10px', border: 'none',
-                                            background: 'linear-gradient(135deg, #d97706, #b45309)',
-                                            color: 'white', fontWeight: '700',
-                                            cursor: processing ? 'not-allowed' : 'pointer',
-                                            opacity: processing ? 0.7 : 1,
-                                            display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px',
-                                            fontSize: '0.95rem'
-                                        }}
-                                    >
-                                        {processing ? <div className="spinner-small" /> : <CreditCard size={16} />}
-                                        {processing ? 'Processing...' : `Recharge ₹${(rechargeAmount || 0).toLocaleString()}`}
-                                    </button>
-                                    <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '10px' }}>
-                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600' }}>1 INR = 1 Credit</span>
-                                        <span style={{ color: '#cbd5e1', fontSize: '0.72rem' }}>|</span>
-                                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: '600' }}>Rate: 3.5 credits / min</span>
+                                    {/* ── TOP UP TAB: radio grid ── */}
+                                    {paymentTab === 'topup' && (
+                                        <div>
+                                            <div style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: '1fr 1fr',
+                                                gap: '0',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '10px',
+                                                overflow: 'hidden',
+                                                marginBottom: '1.5rem'
+                                            }}>
+                                                {CREDIT_AMOUNTS.map((amt, idx) => {
+                                                    const isSelected = rechargeAmount === amt;
+                                                    const isEvenRow = Math.floor(idx / 2) % 2 === 0;
+                                                    return (
+                                                        <label key={amt} style={{
+                                                            display: 'flex', alignItems: 'center', gap: '10px',
+                                                            padding: '13px 16px',
+                                                            cursor: 'pointer',
+                                                            background: isSelected ? 'rgba(0,143,75,0.06)' : (isEvenRow ? '#fafafa' : 'white'),
+                                                            borderBottom: idx < CREDIT_AMOUNTS.length - 2 ? '1px solid #f1f5f9' : 'none',
+                                                            borderRight: idx % 2 === 0 ? '1px solid #f1f5f9' : 'none',
+                                                            transition: 'background 0.12s',
+                                                            userSelect: 'none'
+                                                        }}>
+                                                            <input
+                                                                type="radio"
+                                                                name="topup_amount"
+                                                                checked={isSelected}
+                                                                onChange={() => setRechargeAmount(amt)}
+                                                                style={{ margin: 0, width: 16, height: 16, accentColor: '#008F4B' }}
+                                                            />
+                                                            <span style={{ fontSize: '0.875rem', color: isSelected ? '#008F4B' : '#334155', fontWeight: isSelected ? '700' : '400' }}>
+                                                                ₹{amt.toLocaleString('en-IN')} credits
+                                                            </span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {/* Custom amount input */}
+                                            <div style={{ marginBottom: '1.25rem' }}>
+                                                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Or enter custom amount</div>
+                                                <div style={{ display: 'flex', alignItems: 'center', border: '1.5px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#fafafa' }}>
+                                                    <span style={{ padding: '10px 14px', background: '#f1f5f9', color: '#64748b', fontWeight: '700', borderRight: '1px solid #e2e8f0', fontSize: '0.9rem' }}>₹</span>
+                                                    <input
+                                                        type="number"
+                                                        min="1000"
+                                                        placeholder="Enter amount"
+                                                        value={CREDIT_AMOUNTS.includes(rechargeAmount) ? '' : (rechargeAmount || '')}
+                                                        onChange={e => setRechargeAmount(Number(e.target.value))}
+                                                        style={{ flex: 1, padding: '10px 12px', border: 'none', background: 'transparent', outline: 'none', fontSize: '0.9rem', color: '#1e293b', fontWeight: '600' }}
+                                                    />
+                                                    <span style={{ padding: '10px 14px', color: '#008F4B', fontWeight: '700', fontSize: '0.8rem' }}>
+                                                        = {(rechargeAmount || 0).toLocaleString('en-IN')} credits
+                                                    </span>
+                                                </div>
+                                                <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '4px' }}>Minimum ₹1,000 · 1 INR = 1 Credit</div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* ── EXTEND VALIDITY TAB ── */}
+                                    {paymentTab === 'extend' && (
+                                        <div style={{ marginBottom: '1.5rem' }}>
+                                            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '1rem 1.25rem', marginBottom: '1rem' }}>
+                                                <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>Combo Pack — ₹9,999</div>
+                                                {[
+                                                    { label: 'Platform Access', value: '₹6,500 (30 days)', color: '#008F4B' },
+                                                    { label: 'Call Credits Included', value: '₹3,499 credits', color: '#d97706' },
+                                                    { label: 'Validity Extended By', value: '30 days' },
+                                                    { label: 'Current Valid Till', value: expiryDate, color: isSubscriptionActive ? '#008F4B' : '#ef4444' },
+                                                ].map(r => (
+                                                    <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+                                                        <span style={{ fontSize: '0.83rem', color: '#64748b' }}>{r.label}</span>
+                                                        <span style={{ fontSize: '0.875rem', fontWeight: '700', color: r.color || '#1e293b' }}>{r.value}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div style={{ background: 'rgba(0,143,75,0.06)', border: '1px solid rgba(0,143,75,0.2)', borderRadius: '8px', padding: '10px 14px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                                                <CheckCircle size={14} color="#008F4B" style={{ flexShrink: 0, marginTop: '1px' }} />
+                                                <p style={{ margin: 0, fontSize: '0.78rem', color: '#166534', lineHeight: 1.5 }}>
+                                                    After purchase, platform access is extended by 30 days and 3,499 credits are added to your wallet for calls.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* ── Payment Summary + CTA ── */}
+                                    <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1.25rem' }}>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#1e293b', marginBottom: '10px' }}>Payment Summary</div>
+
+                                        {paymentTab === 'topup' ? (
+                                            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 16px', marginBottom: '1rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '0.83rem', color: '#64748b' }}>Credits being added</span>
+                                                    <span style={{ fontSize: '0.9rem', fontWeight: '700', color: '#008F4B' }}>{(rechargeAmount || 0).toLocaleString('en-IN')} credits</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', paddingTop: '6px', borderTop: '1px solid #f1f5f9' }}>
+                                                    <span style={{ fontSize: '0.83rem', color: '#64748b' }}>Amount to pay</span>
+                                                    <span style={{ fontSize: '1.05rem', fontWeight: '800', color: '#1e293b' }}>₹{(rechargeAmount || 0).toLocaleString('en-IN')}</span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 16px', marginBottom: '1rem' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontSize: '0.83rem', color: '#64748b' }}>Platform Access (30 days)</span>
+                                                    <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#1e293b' }}>₹6,500</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
+                                                    <span style={{ fontSize: '0.83rem', color: '#64748b' }}>Call Credits</span>
+                                                    <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#d97706' }}>₹3,499</span>
+                                                </div>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                                                    <span style={{ fontSize: '0.83rem', color: '#64748b' }}>Total Amount</span>
+                                                    <span style={{ fontSize: '1.05rem', fontWeight: '800', color: '#1e293b' }}>₹9,999</span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <button
+                                            onClick={() => handlePayment(paymentTab === 'topup' ? 'minutes' : 'subscription')}
+                                            disabled={processing || (paymentTab === 'topup' && !rechargeAmount)}
+                                            style={{
+                                                width: '100%', padding: '13px', borderRadius: '10px', border: 'none',
+                                                background: (processing || (paymentTab === 'topup' && !rechargeAmount))
+                                                    ? '#94a3b8'
+                                                    : 'linear-gradient(135deg, #008F4B 0%, #006830 100%)',
+                                                color: 'white', fontWeight: '700', fontSize: '0.95rem',
+                                                cursor: (processing || (paymentTab === 'topup' && !rechargeAmount)) ? 'not-allowed' : 'pointer',
+                                                display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {processing ? <div className="spinner-small" /> : <Zap size={16} />}
+                                            {processing
+                                                ? 'Processing...'
+                                                : paymentTab === 'topup'
+                                                    ? `Pay ₹${(rechargeAmount || 0).toLocaleString('en-IN')}`
+                                                    : 'Pay ₹9,999 — Extend & Get Credits'}
+                                        </button>
+                                        <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.72rem', color: '#94a3b8' }}>
+                                            Secured by Razorpay · Instant processing
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Usage Analytics Section */}
-                        <div style={{ gridColumn: '1 / -1', background: 'white', borderRadius: '20px', padding: '2rem', border: '1px solid var(--border)', boxShadow: '0 2px 12px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
-                                <div>
-                                    <h2 style={{ fontSize: '1.15rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-                                        <TrendingUp size={20} color="var(--primary)" /> Usage Activity
-                                    </h2>
-                                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px', marginBottom: 0 }}>Daily minute consumption and trends</p>
+                            {/* ── Usage Activity (unchanged) ── */}
+                            <div style={{ background: 'white', borderRadius: '20px', padding: '2rem', border: '1px solid var(--border)', boxShadow: '0 2px 12px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+                                    <div>
+                                        <h2 style={{ fontSize: '1.15rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                                            <TrendingUp size={20} color="var(--primary)" /> Usage Activity
+                                        </h2>
+                                        <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '4px', marginBottom: 0 }}>Daily minute consumption and trends</p>
+                                    </div>
+                                    <Link to="/admin/usage-history" style={{ fontSize: '0.82rem', color: 'var(--primary)', fontWeight: '600', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 14px', borderRadius: '8px', border: '1.5px solid rgba(0,143,75,0.25)', background: 'rgba(0,143,75,0.04)' }}>
+                                        View Usage Ledger <ChevronRight size={14} />
+                                    </Link>
                                 </div>
-                                <Link to="/admin/usage-history" style={{ fontSize: '0.82rem', color: 'var(--primary)', fontWeight: '600', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 14px', borderRadius: '8px', border: '1.5px solid rgba(0,143,75,0.25)', background: 'rgba(0,143,75,0.04)' }}>
-                                    View Usage Ledger <ChevronRight size={14} />
-                                </Link>
+                                <UsageGraph userId={authUser?.id} />
                             </div>
-                            <UsageGraph userId={authUser?.id} />
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
 
                 {/* ==================== HISTORY TAB ==================== */}
                 {
@@ -693,12 +698,13 @@ const Billing = () => {
                                                 const validityDate = u.subscription_expiry
                                                     ? new Date(u.subscription_expiry).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, ' ')
                                                     : 'N/A';
-                                                const creatorEmail = u.creator_email || (u.created_by ? u.created_by : '—');
+                                                const creatorEmail = u.creator_email || (u.created_by && u.created_by !== '-' ? u.created_by : 'Unknown');
+                                                const displayName = u.name && u.name !== '-' ? u.name : u.email;
                                                 return (
                                                     <tr key={u.user_id} className="session-row">
                                                         <td>
-                                                            <div style={{ fontWeight: '600', color: 'var(--text)' }}>{u.name || u.email}</div>
-                                                            {u.name && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{u.email}</div>}
+                                                            <div style={{ fontWeight: '600', color: 'var(--text)' }}>{displayName}</div>
+                                                            {displayName !== u.email && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{u.email}</div>}
                                                         </td>
                                                         <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{creatorEmail}</td>
                                                         <td>

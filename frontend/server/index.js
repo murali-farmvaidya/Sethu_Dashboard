@@ -6,6 +6,10 @@ console.log('🔑 Azure Key Configured:', !!process.env.AZURE_OPENAI_API_KEY);
 console.log('📍 Azure Endpoint:', process.env.AZURE_OPENAI_ENDPOINT);
 import express from 'express';
 import pg from 'pg';
+
+// Force node-postgres to treat TIMESTAMP WITHOUT TIME ZONE as UTC instead of local
+pg.types.setTypeParser(1114, str => new Date(str.endsWith('Z') ? str : str + 'Z'));
+
 import cors from 'cors';
 import axios from 'axios';
 import nodemailer from 'nodemailer';
@@ -18,6 +22,7 @@ import paymentRoutes from './routes/payment.routes.js';
 import exotelRoutes from './routes/exotel.routes.js';
 import notificationsRoutes from './routes/notifications.routes.js';
 import { startMonitor } from './services/callMonitor.service.js';
+import { startAutoRenewalCron } from './services/subscriptionRenewal.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -495,6 +500,9 @@ const initDatabase = async () => {
         // Start Monitor
         startMonitor();
 
+        // Start subscription auto-renewal cron (runs hourly)
+        startAutoRenewalCron();
+
         // Seed Default Super Admin
         const adminEmail = 'admin@farmvaidya.ai';
         const adminCheck = await pool.query(`SELECT user_id FROM "${getTableName('Users')}" WHERE email = $1`, [adminEmail]);
@@ -725,10 +733,11 @@ app.get('/api/me', async (req, res) => {
 
             // Recursive check for creator status
             let effectiveBalance = user.minutes_balance || 0;
+            let creator = null;
 
             if (user.created_by) {
                 const creatorResult = await pool.query(`SELECT is_active, role, minutes_balance, subscription_expiry FROM "${getTableName('Users')}" WHERE user_id = $1`, [user.created_by]);
-                const creator = creatorResult.rows[0];
+                creator = creatorResult.rows[0];
                 if (creator) {
                     if (!creator.is_active) {
                         isEffectiveActive = false;
@@ -754,7 +763,8 @@ app.get('/api/me', async (req, res) => {
                     isActive: isEffectiveActive,
                     deactivationReason: deactivationReason,
                     minutes_balance: effectiveBalance,
-                    subscription_expiry: user.subscription_expiry, // Keep original or inherit? Usually User doesn't have expiry, Admin does.
+                    // If agent, show creator's expiry so the dashboard status is accurate
+                    subscription_expiry: user.role === 'user' && user.created_by && creator ? creator.subscription_expiry : user.subscription_expiry,
                     created_by: user.created_by,
                     mustChangePassword: user.must_change_password
                 }
@@ -1939,6 +1949,16 @@ VALUES($1, $2) ON CONFLICT DO NOTHING
         `, [userId, agentId]);
 
         const agents = await pool.query(`SELECT agent_id FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [userId]);
+
+        // Notify the user about the new agent
+        try {
+            const { notifyAgentAssigned } = await import('./services/notification.service.js');
+            const userRow = await pool.query(`SELECT email FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]);
+            if (userRow.rows[0]) {
+                notifyAgentAssigned(userId, userRow.rows[0].email, agentId).catch(() => { });
+            }
+        } catch (_) { }
+
         res.json({ success: true, agents: agents.rows.map(r => r.agent_id) });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1960,12 +1980,17 @@ app.put('/api/users/:userId/agents', async (req, res) => {
     const { agents } = req.body; // Expects array of agent IDs
 
     try {
+        // Fetch existing agents before deleting
+        const existingAgentsRes = await pool.query(`SELECT agent_id FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [userId]);
+        const existingAgents = existingAgentsRes.rows.map(r => r.agent_id);
+
         await pool.query(`DELETE FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [userId]);
 
         if (agents && agents.length > 0) {
             // Agent Assignment Constraint Check
-            const uRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]);
-            const targetRole = uRes.rows[0]?.role;
+            const uRes = await pool.query(`SELECT role, email FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]);
+            const targetUser = uRes.rows[0];
+            const targetRole = targetUser?.role;
 
             if (targetRole === 'admin' || targetRole === 'super_admin') {
                 for (const agentId of agents) {
@@ -1987,6 +2012,22 @@ app.put('/api/users/:userId/agents', async (req, res) => {
                     INSERT INTO "${getTableName('User_Agents')}"(user_id, agent_id)
 VALUES($1, $2)
                 `, [userId, agentId]);
+            }
+
+            // Notify the target user about agent assignment ONLY if the list changed
+            const newAgentList = [...agents].sort().join(',');
+            const oldAgentList = [...existingAgents].sort().join(',');
+
+            if (newAgentList !== oldAgentList) {
+                try {
+                    const { notifyAgentAssigned } = await import('./services/notification.service.js');
+                    if (targetUser?.email) {
+                        notifyAgentAssigned(
+                            userId, targetUser.email,
+                            `${agents.length} agent(s) (IDs: ${agents.join(', ')})`
+                        ).catch(() => { });
+                    }
+                } catch (_) { }
             }
         }
 

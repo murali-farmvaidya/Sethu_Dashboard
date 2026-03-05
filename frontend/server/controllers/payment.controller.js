@@ -1,6 +1,8 @@
 import pg from 'pg';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import { notifyRechargeSuccess, notifyAutoRenewalSuccess } from '../services/notification.service.js';
+import { runSubscriptionRenewalCheck } from '../services/subscriptionRenewal.service.js';
 
 const { Pool } = pg;
 
@@ -22,7 +24,11 @@ const razorpay = new Razorpay({
     key_secret: process.env.RAZORPAY_KEY_SECRET
 });
 
-const SUBSCRIPTION_AMOUNT = 650000; // 6500 INR in paise
+// ₹9999 combo pack: ₹6500 = platform access (30 days) + ₹3499 = call credits
+const COMBO_PACK_AMOUNT = 999900;       // 9999 INR in paise
+const PLATFORM_ACCESS_COST = 6500;     // credits deducted for platform access
+const COMBO_CALL_CREDITS = 3499;       // call credits from the combo pack
+
 
 export const createSubscriptionOrder = async (req, res) => {
     try {
@@ -33,32 +39,35 @@ export const createSubscriptionOrder = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Master admin account cannot make payments. Please use a regular admin account to manage subscriptions.' });
         }
 
+        // ₹9999 Combo Pack: ₹6500 platform access + ₹3499 call credits
         const options = {
-            amount: SUBSCRIPTION_AMOUNT,
-            currency: "INR",
-            receipt: `sub_${userId}_${Date.now()}`,
-            notes: {
-                type: 'subscription',
-                userId: userId
-            }
+            amount: COMBO_PACK_AMOUNT,
+            currency: 'INR',
+            receipt: `combo_${userId}_${Date.now()}`,
+            notes: { type: 'combo', userId }
         };
 
         const order = await razorpay.orders.create(options);
 
-        // Record pending payment
+        // Record pending payment — minutes_added = 3499 (call credits portion)
         await pool.query(
             `INSERT INTO "${getTableName('Payments')}" (
-                id, user_id, amount, currency, status, order_id, type, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
-            [crypto.randomUUID(), userId, SUBSCRIPTION_AMOUNT, 'INR', 'created', order.id, 'subscription']
+                id, user_id, amount, currency, status, order_id, type, minutes_added, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`,
+            [crypto.randomUUID(), userId, COMBO_PACK_AMOUNT, 'INR', 'created', order.id, 'subscription', COMBO_CALL_CREDITS]
         );
 
         res.json({
             success: true,
             order_id: order.id,
-            amount: SUBSCRIPTION_AMOUNT,
+            amount: COMBO_PACK_AMOUNT,
             key_id: process.env.RAZORPAY_KEY_ID,
-            currency: "INR"
+            currency: 'INR',
+            pack_details: {
+                total: 9999,
+                platform_access: PLATFORM_ACCESS_COST,
+                call_credits: COMBO_CALL_CREDITS
+            }
         });
 
     } catch (error) {
@@ -125,62 +134,173 @@ export const verifyPayment = async (req, res) => {
 
         const generated_signature = crypto
             .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-            .update(order_id + "|" + payment_id)
+            .update(order_id + '|' + payment_id)
             .digest('hex');
 
-        if (generated_signature === signature) {
-            // Check payment record
-            const paymentRes = await pool.query(
-                `SELECT * FROM "${getTableName('Payments')}" WHERE order_id = $1`,
-                [order_id]
-            );
-            const payment = paymentRes.rows[0];
-
-            if (!payment) {
-                return res.status(404).json({ success: false, message: 'Payment record not found' });
-            }
-
-            if (payment.status === 'captured') {
-                return res.json({ success: true, message: 'Payment already processed' });
-            }
-
-            // Update Payment
-            await pool.query(
-                `UPDATE "${getTableName('Payments')}" SET status = 'captured', payment_id = $1, updated_at = NOW() WHERE order_id = $2`,
-                [payment_id, order_id]
-            );
-
-            // Update User
-            const userRes = await pool.query(
-                `SELECT * FROM "${getTableName('Users')}" WHERE user_id = $1`,
-                [userId]
-            );
-            const user = userRes.rows[0];
-
-            if (payment.type === 'subscription') {
-                const now = new Date();
-                let expiry = now;
-                if (user.subscription_expiry && new Date(user.subscription_expiry) > now) {
-                    expiry = new Date(user.subscription_expiry);
-                }
-                // Add 30 days
-                expiry.setDate(expiry.getDate() + 30);
-
-                await pool.query(
-                    `UPDATE "${getTableName('Users')}" SET subscription_expiry = $1, updated_at = NOW() WHERE user_id = $2`,
-                    [expiry, userId]
-                );
-            } else if (payment.type === 'minutes') {
-                await pool.query(
-                    `UPDATE "${getTableName('Users')}" SET minutes_balance = COALESCE(minutes_balance, 0) + $1, updated_at = NOW() WHERE user_id = $2`,
-                    [payment.minutes_added, userId]
-                );
-            }
-
-            res.json({ success: true, message: 'Payment verified and account updated' });
-        } else {
-            res.status(400).json({ success: false, message: 'Invalid signature' });
+        if (generated_signature !== signature) {
+            return res.status(400).json({ success: false, message: 'Invalid signature' });
         }
+
+        // Load payment record
+        const paymentRes = await pool.query(
+            `SELECT * FROM "${getTableName('Payments')}" WHERE order_id = $1`,
+            [order_id]
+        );
+        const payment = paymentRes.rows[0];
+        if (!payment) return res.status(404).json({ success: false, message: 'Payment record not found' });
+        if (payment.status === 'captured') return res.json({ success: true, message: 'Payment already processed' });
+
+        // Mark payment captured
+        await pool.query(
+            `UPDATE "${getTableName('Payments')}" SET status = 'captured', payment_id = $1, updated_at = NOW() WHERE order_id = $2`,
+            [payment_id, order_id]
+        );
+
+        // Load user
+        const userRes = await pool.query(
+            `SELECT * FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]
+        );
+        let user = userRes.rows[0];
+
+        if (!user) {
+            console.error(`[PaymentVerify] User ${userId} not found for payment ${order_id}`);
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // ── Redirect to Billing Owner if this is an Agent account ──
+        // Agents (role: 'user') inherit balance/expiry from their creator (Admin)
+        let billingUserId = userId;
+        let billingUser = user;
+
+        if (user.role === 'user' && user.created_by) {
+            console.log(`[PaymentVerify] User ${userId} is an Agent. Charging Creator ${user.created_by} instead.`);
+            const ownerRes = await pool.query(
+                `SELECT * FROM "${getTableName('Users')}" WHERE user_id = $1`, [user.created_by]
+            );
+            if (ownerRes.rows[0]) {
+                billingUserId = user.created_by;
+                billingUser = ownerRes.rows[0];
+            }
+        }
+
+        console.log(`[PaymentVerify] Processing ${payment.type} for ${billingUser.email} (ID: ${billingUserId})`);
+        console.log(`[PaymentVerify] Current Balance: ${billingUser.minutes_balance}, Current Expiry: ${billingUser.subscription_expiry}`);
+
+        // Update the main variables for the rest of the function
+        const userIdToUpdate = billingUserId;
+        const userToUpdate = billingUser;
+
+        if (!user) {
+            console.error(`[PaymentVerify] User ${userId} not found for payment ${order_id}`);
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        console.log(`[PaymentVerify] Processing ${payment.type} for ${user.email} (ID: ${userId})`);
+        console.log(`[PaymentVerify] Current Balance: ${user.minutes_balance}, Current Expiry: ${user.subscription_expiry}`);
+
+        // ── COMBO PACK (₹9999): ₹6500 platform + ₹3499 call credits ──
+        if (payment.type === 'subscription') {
+            const now = new Date();
+            let expiry = (userToUpdate.subscription_expiry && new Date(userToUpdate.subscription_expiry) > now)
+                ? new Date(userToUpdate.subscription_expiry)
+                : now;
+            expiry.setDate(expiry.getDate() + 30);
+
+            // Call credits = minutes_added stored at order creation (3499)
+            const callCredits = parseInt(payment.minutes_added || COMBO_CALL_CREDITS);
+
+            const updateRes = await pool.query(
+                `UPDATE "${getTableName('Users')}"
+                 SET subscription_expiry = $1,
+                     minutes_balance = COALESCE(minutes_balance, 0) + $2,
+                     updated_at = NOW()
+                 WHERE user_id = $3`,
+                [expiry, callCredits, userIdToUpdate]
+            );
+
+            console.log(`[PaymentVerify] Subscription Update Result for ${userIdToUpdate}:`, updateRes.rowCount, 'rows updated');
+            console.log(`[PaymentVerify] New Expiry set to: ${expiry}`);
+
+            // Fire notification
+            notifyRechargeSuccess(
+                userIdToUpdate, userToUpdate.email,
+                9999, callCredits, 30
+            ).catch(() => { });
+
+            return res.json({
+                success: true,
+                message: `Platform access renewed for 30 days & ${callCredits} call credits added!`
+            });
+        }
+
+        // ── CREDIT-ONLY RECHARGE (₹X → X credits) ──
+        if (payment.type === 'minutes') {
+            const creditsAdded = parseInt(payment.minutes_added || 0);
+            const currentBalance = parseFloat(userToUpdate.minutes_balance || 0);
+            let newBalance = currentBalance + creditsAdded;
+
+            const now = new Date();
+            const isExpired = !userToUpdate.subscription_expiry || new Date(userToUpdate.subscription_expiry) <= now;
+            let autoRenewed = false;
+            let newExpiry = null;
+
+            if (isExpired && newBalance >= 6500) {
+                // Auto-Renew if they have enough balance now
+                newBalance -= 6500;
+                newExpiry = new Date();
+                newExpiry.setDate(newExpiry.getDate() + 30);
+                autoRenewed = true;
+
+                const updateRes = await pool.query(
+                    `UPDATE "${getTableName('Users')}"
+                     SET minutes_balance = $1, subscription_expiry = $2, updated_at = NOW()
+                     WHERE user_id = $3`,
+                    [newBalance, newExpiry, userIdToUpdate]
+                );
+                console.log(`[PaymentVerify] Auto-renewal Update Result for ${userIdToUpdate}:`, updateRes.rowCount, 'rows updated');
+
+                // Create a payment record to log the auto-renewal deduction natively
+                await pool.query(
+                    `INSERT INTO "${getTableName('Payments')}" (id, user_id, amount, currency, status, order_id, type, minutes_added, created_at, updated_at)
+                     VALUES (gen_random_uuid()::text, $1, 650000, 'INR', 'captured', $2, 'auto_renewal', -6500, NOW(), NOW())`,
+                    [userIdToUpdate, `auto_renew_${Date.now()}`]
+                );
+            } else {
+                const updateRes = await pool.query(
+                    `UPDATE "${getTableName('Users')}"
+                     SET minutes_balance = $1, updated_at = NOW()
+                     WHERE user_id = $2`,
+                    [newBalance, userIdToUpdate]
+                );
+                console.log(`[PaymentVerify] Balance-only Update Result for ${userIdToUpdate}:`, updateRes.rowCount, 'rows updated');
+            }
+
+            // Always send the base recharge success notification First
+            notifyRechargeSuccess(
+                userIdToUpdate, userToUpdate.email,
+                Math.round(payment.amount / 100), creditsAdded, 0
+            ).catch(() => { });
+
+            // If we did an auto-renew, fire the success event for that too
+            if (autoRenewed) {
+                notifyAutoRenewalSuccess(
+                    userIdToUpdate, userToUpdate.email,
+                    6500, newBalance, newExpiry
+                ).catch(() => { });
+            }
+
+            let responseMessage = `${creditsAdded} credits added to your account!`;
+            if (autoRenewed) {
+                responseMessage = `${creditsAdded} credits added! Your platform subscription was also automatically renewed.`;
+            }
+
+            return res.json({
+                success: true,
+                message: responseMessage
+            });
+        }
+
+        res.json({ success: true, message: 'Payment verified and account updated' });
 
     } catch (error) {
         console.error('Error verifying payment:', error);
@@ -192,10 +312,32 @@ export const getBalances = async (req, res) => {
     try {
         const userId = req.user.userId;
         const result = await pool.query(
-            `SELECT subscription_expiry, minutes_balance, active_lines, phone_number FROM "${getTableName('Users')}" WHERE user_id = $1`,
+            `SELECT user_id, role, created_by, subscription_expiry, minutes_balance, active_lines, phone_number FROM "${getTableName('Users')}" WHERE user_id = $1`,
             [userId]
         );
-        res.json({ success: true, data: result.rows[0] });
+        const user = result.rows[0];
+
+        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+        // If Agent, fetch from Creator
+        if (user.role === 'user' && user.created_by) {
+            const creatorRes = await pool.query(
+                `SELECT subscription_expiry, minutes_balance, active_lines, phone_number FROM "${getTableName('Users')}" WHERE user_id = $1`,
+                [user.created_by]
+            );
+            if (creatorRes.rows[0]) {
+                const creator = creatorRes.rows[0];
+                return res.json({
+                    success: true,
+                    data: {
+                        ...creator,
+                        phone_number: user.phone_number // Keep agent's own phone
+                    }
+                });
+            }
+        }
+
+        res.json({ success: true, data: user });
     } catch (error) {
         console.error('Error fetching balances:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch balances' });
@@ -439,6 +581,12 @@ export const adjustCredits = async (req, res) => {
             `UPDATE "${getTableName('Users')}" SET minutes_balance = COALESCE(minutes_balance, 0) + $1, updated_at = NOW() WHERE user_id = $2`,
             [amount, userId]
         );
+
+        // Check for auto-renewal after adjustment
+        // Wrap in setTimeout to let DB persist and not block the response
+        setTimeout(() => {
+            runSubscriptionRenewalCheck().catch(e => console.error('[AdjustCredits] Renewal error:', e));
+        }, 500);
 
         res.json({ success: true, message: 'Credits adjusted successfully' });
     } catch (error) {
