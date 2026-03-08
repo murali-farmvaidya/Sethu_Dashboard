@@ -17,13 +17,21 @@ import {
 } from './notification.service.js';
 
 const { Pool } = pg;
+
+// Force node-postgres to treat TIMESTAMP WITHOUT TIME ZONE as UTC instead of local
+pg.types.setTypeParser(1114, str => new Date(str.endsWith('Z') ? str : str + 'Z'));
+
 const pool = new Pool({
     host: process.env.POSTGRES_HOST,
     port: process.env.POSTGRES_PORT,
     database: process.env.POSTGRES_DB,
     user: process.env.POSTGRES_USER,
     password: process.env.POSTGRES_PASSWORD,
-    ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false
+    ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false,
+    max: 5,
+    connectionTimeoutMillis: 20000,
+    idleTimeoutMillis: 30000,
+    keepAlive: true
 });
 
 const getTableName = (baseTableName) => {
@@ -113,10 +121,11 @@ export async function runSubscriptionRenewalCheck() {
 
                         // Record as a payment transaction for audit trail
                         const transactionId = crypto.randomUUID();
+                        const orderId = `auto_renew_${user.user_id.slice(0, 8)}_${Date.now()}`;
                         await pool.query(`
                             INSERT INTO "${paymentsTable}" (id, user_id, amount, currency, status, order_id, type, minutes_added, created_at, updated_at)
                             VALUES ($1, $2, 650000, 'INR', 'captured', $3, 'auto_renewal', $4, NOW(), NOW())
-                        `, [transactionId, user.user_id, `auto_renew_${Date.now()}`, -PLATFORM_COST_CREDITS]);
+                        `, [transactionId, user.user_id, orderId, -PLATFORM_COST_CREDITS]);
 
                         await pool.query('COMMIT');
 
