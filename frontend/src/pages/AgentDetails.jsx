@@ -3,8 +3,7 @@ import toast from 'react-hot-toast';
 import api, { adminAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Phone, Settings, Send, ArrowLeft, Search, Download, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare, Megaphone } from 'lucide-react';
-import Header from '../components/Header';
+import { Phone, Settings, Send, ArrowLeft, Search, Download, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare, Megaphone, Info } from 'lucide-react';
 import CampaignTab from '../components/CampaignTab';
 
 const ITEMS_PER_PAGE = 10;
@@ -51,14 +50,15 @@ export default function AgentDetails() {
     const [sessions, setSessions] = useState([]);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
     const [agentName, setAgentName] = useState('');
     const [downloadDropdown, setDownloadDropdown] = useState(null);
-    const [currentPage, setCurrentPage] = useState(1);
+    const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page')) || 1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalSessions, setTotalSessions] = useState(0);
-    const [sortBy, setSortBy] = useState('started_at');
-    const [sortOrder, setSortOrder] = useState('desc');
+    const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || 'started_at');
+    const [sortOrder, setSortOrder] = useState(searchParams.get('sortOrder') || 'desc');
     const [successRate, setSuccessRate] = useState(0);
     const [totalDuration, setTotalDuration] = useState(0);
     const [zeroTurnsCount, setZeroTurnsCount] = useState(0);
@@ -75,8 +75,19 @@ export default function AgentDetails() {
     const [selectedBinItems, setSelectedBinItems] = useState(new Set());
 
     const navigate = useNavigate();
-    const [searchParams, setSearchParams] = useSearchParams();
-    const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'sessions');
+    const activeTab = searchParams.get('tab') || 'sessions';
+
+    const updateSearchParams = useCallback((updates) => {
+        const nextParams = new URLSearchParams(searchParams);
+        Object.entries(updates).forEach(([key, value]) => {
+            if (value === null || value === undefined || value === '') {
+                nextParams.delete(key);
+            } else {
+                nextParams.set(key, value);
+            }
+        });
+        setSearchParams(nextParams, { replace: true });
+    }, [searchParams, setSearchParams]);
 
     const [showHiddenSessions, setShowHiddenSessions] = useState(false);
 
@@ -133,6 +144,27 @@ export default function AgentDetails() {
         } catch (err) {
             toast.error('Failed to save config: ' + (err.response?.data?.error || err.message));
         }
+    };
+
+    const handleCallSession = (session) => {
+        const isExempt = user?.role === 'super_admin' || user?.id === 'master_root_0';
+        if (!telephonyConfig) {
+            toast.error('Telephony not configured for this agent.');
+            return;
+        }
+        if (!isExempt && (user?.minutes_balance || 0) <= 0) {
+            toast.error('Insufficient credits!');
+            return;
+        }
+
+        let cData = session.custom_data;
+        if (typeof cData === 'string' && cData.startsWith('{')) {
+            try { cData = JSON.parse(cData); } catch (e) { }
+        }
+        const phone = session.phone || session.customer_phone || (typeof cData === 'object' ? (cData?.phone || cData?.customer_number || cData?.number) : '');
+
+        setCallForm({ receiverNumber: phone || '', receiverName: '' });
+        setShowCallModal(true);
     };
 
     const handleSendCall = async () => {
@@ -299,23 +331,32 @@ export default function AgentDetails() {
     // Debounce search
     useEffect(() => {
         const timer = setTimeout(() => {
-            setCurrentPage(1);
+            const urlSearch = searchParams.get('search') || '';
+            if (searchTerm !== urlSearch) {
+                updateSearchParams({ search: searchTerm, page: 1 });
+                setCurrentPage(1);
+            }
         }, 300);
         return () => clearTimeout(timer);
-    }, [searchTerm]);
+    }, [searchTerm, updateSearchParams, searchParams]);
+
+    // Sync other params with URL
+    const updatePage = (page) => {
+        setCurrentPage(page);
+        updateSearchParams({ page });
+    };
 
     const handleSort = (field) => {
-        if (sortBy === field) {
-            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortBy(field);
-            setSortOrder('desc');
-        }
+        const newOrder = sortBy === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc';
+        setSortBy(field);
+        setSortOrder(newOrder);
         setCurrentPage(1);
+        updateSearchParams({ sortBy: field, sortOrder: newOrder, page: 1 });
     };
 
     const handleSessionClick = (sessionId) => {
-        navigate(isAdmin ? `/admin/session/${sessionId}` : `/user/session/${sessionId}`);
+        const siblingIds = sessions.map(s => s.session_id);
+        navigate(isAdmin ? `/admin/session/${sessionId}` : `/user/session/${sessionId}`, { state: { siblingIds } });
     };
 
     // Format seconds to readable time with units
@@ -620,158 +661,57 @@ export default function AgentDetails() {
 
     return (
         <>
-            <Header />
-            <div className="dashboard-layout">
-                {/* Left Sidebar - Agent Info */}
-                <aside className="dashboard-sidebar">
-                    {/* Mobile Toggle Header */}
-                    <div className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-                        <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)' }}>About Agent</h3>
-                        {isSidebarOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                    </div>
-
-                    <div className={`sidebar-content ${isSidebarOpen ? 'open' : ''}`}>
-                        <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
-                            <h3 className="desktop-header" style={{ marginBottom: '1rem', color: 'var(--primary)', fontSize: '1.2rem' }}>About Agent</h3>
-
-                            <div className="info-row">
-                                <span className="info-label">Agent Name</span>
-                                <span className="info-value" style={{ fontWeight: 600 }}>{agentName || agentId}</span>
-                            </div>
-                            <div className="info-row">
-                                <span className="info-label">Agent ID</span>
-                                <span className="info-value font-mono" style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>{agentId}</span>
-                            </div>
-
-                            <div className="info-row">
-                                <span className="info-label">Created At</span>
-                                <span className="info-value">{formatDate(agentCreatedAt)}</span>
-                            </div>
-
-
-                            <div className="info-row">
-                                <span className="info-label">Total Sessions</span>
-                                <span className="info-value" style={{ fontSize: '1.2rem', color: '#1a1a1a' }}>{totalSessions}</span>
-                            </div>
-
-                            <div className="info-row">
-                                <span className="info-label">Total Duration</span>
-                                {/* Note: Server-provided stats */}
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                                    <span className="info-value">{Math.floor(totalDuration / 60)} min</span>
-                                    <span style={{ fontSize: '0.7rem', color: '#666', marginTop: '2px' }}>
-                                        Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                </div>
-                            </div>
-
-                            <div className="info-row">
-                                <span className="info-label">Last Synced</span>
-                                <span className="info-value">{formatDateTime(agentLastSynced)}</span>
-                            </div>
-
-                        </div>
-
-
-                        <div style={{ padding: '0 1.5rem 1.0rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '10px', marginTop: 'auto' }}>
-                            {/* Call Button */}
-                            <button
-                                className="btn-logout"
-                                style={{
-                                    width: '100%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: '8px',
-                                    background: telephonyConfig ? '#22c55e' : '#f1f5f9',
-                                    color: telephonyConfig ? 'white' : '#94a3b8',
-                                    border: telephonyConfig ? 'none' : '1px solid #cbd5e1',
-                                    cursor: (telephonyConfig && ((user?.minutes_balance > 0) || (user?.role === 'super_admin' || user?.id === 'master_root_0'))) ? 'pointer' : 'not-allowed',
-                                    marginBottom: '0',
-                                    opacity: (telephonyConfig && ((user?.minutes_balance > 0) || (user?.role === 'super_admin' || user?.id === 'master_root_0'))) ? 1 : 0.6
-                                }}
-                                onClick={() => {
-                                    const isExempt = user?.role === 'super_admin' || user?.id === 'master_root_0';
-                                    if (!telephonyConfig) {
-                                        toast.error('Telephony not configured for this agent. Please ask an Admin to configure it first.');
-                                    } else if (!isExempt && (user?.minutes_balance || 0) <= 0) {
-                                        toast.error('Insufficient credits! Please recharge to make calls.');
-                                    } else {
-                                        setShowCallModal(true);
-                                    }
-                                }}
-                            >
-                                <Phone size={18} /> Send Call
-                            </button>
-
-                            {/* Config Button (Admins Only) */}
-                            {(user?.role === 'super_admin' || user?.id === 'master_root_0') && (
-                                <button
-                                    className="btn-logout"
-                                    style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.85rem', background: '#fff', border: '1px solid #cbd5e1', color: '#475569' }}
-                                    onClick={() => setShowConfigModal(true)}
-                                >
-                                    <Settings size={16} /> Configure Telephony
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="sidebar-footer">
-                            <button className="btn-logout" onClick={() => navigate('/')}>
-                                <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back to Dashboard
-                            </button>
-                            {user?.id === 'master_root_0' && (
-                                <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                                    <div style={{ display: 'flex', gap: '5px' }}>
-                                        <button
-                                            className="btn-logout"
-                                            style={{ flex: 1, borderColor: '#cbd5e1', color: '#64748b', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
-                                            onClick={() => handleDeleteAgent(false)}
-                                        >
-                                            <EyeOff size={16} style={{ marginRight: '4px' }} /> Hide
-                                        </button>
-                                        <button
-                                            className="btn-logout"
-                                            style={{ flex: 1, borderColor: '#ef4444', color: '#ef4444', background: '#fff', fontSize: '0.8rem', padding: '8px' }}
-                                            onClick={() => handleDeleteAgent(true)}
-                                        >
-                                            <Trash2 size={16} style={{ marginRight: '4px' }} /> Destroy
-                                        </button>
-                                    </div>
-                                    <button
-                                        className="btn-logout"
-                                        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: '#64748b' }}
-                                        onClick={() => setRecycleBinOpen(true)}
-                                    >
-                                        <RotateCcw size={16} /> Recycle Bin
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </aside>
-
-                {/* Main Content */}
-                <main className="dashboard-main" style={{ padding: '0', background: '#f5f7fa', height: '100vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f5f7fa', minHeight: '100vh', width: '100%' }}>
+                <main style={{ flex: 1, padding: '0', background: '#f5f7fa', overflowY: 'auto' }}>
                     <div style={{ padding: '2rem 2rem 0 2rem', background: '#f5f7fa' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                 <button
-                                    onClick={() => navigate('/')}
+                                    onClick={() => navigate(-1)}
                                     style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#64748b', padding: '5px', borderRadius: '50%', transition: 'background 0.2s' }}
                                     onMouseOver={(e) => e.currentTarget.style.background = '#e2e8f0'}
                                     onMouseOut={(e) => e.currentTarget.style.background = 'none'}
-                                    title="Back to Dashboard"
+                                    title="Go Back"
                                 >
                                     <ArrowLeft size={24} />
                                 </button>
-                                <h1 style={{ color: 'var(--primary)', fontSize: '1.75rem' }}>{agentName || agentId}</h1>
+                                <h1 style={{ color: 'var(--primary)', fontSize: '1.75rem', margin: 0 }}>{agentName || agentId}</h1>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                {isAdmin && (
+                                    <button
+                                        style={{
+                                            padding: '8px 16px', borderRadius: '8px', border: telephonyConfig ? 'none' : '1px solid #cbd5e1',
+                                            background: telephonyConfig ? 'linear-gradient(135deg, #22c55e, #16a34a)' : '#f8fafc',
+                                            color: telephonyConfig ? 'white' : '#64748b', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px', cursor: (telephonyConfig && ((user?.minutes_balance > 0) || (user?.role === 'super_admin' || user?.id === 'master_root_0'))) ? 'pointer' : 'not-allowed',
+                                            opacity: (telephonyConfig && ((user?.minutes_balance > 0) || (user?.role === 'super_admin' || user?.id === 'master_root_0'))) ? 1 : 0.6,
+                                            fontSize: '0.9rem', boxShadow: telephonyConfig ? '0 4px 6px -1px rgba(0,0,0,0.1)' : 'none'
+                                        }}
+                                        onClick={() => {
+                                            const isExempt = user?.role === 'super_admin' || user?.id === 'master_root_0';
+                                            if (!telephonyConfig) toast.error('Telephony not configured for this agent.');
+                                            else if (!isExempt && (user?.minutes_balance || 0) <= 0) toast.error('Insufficient credits!');
+                                            else {
+                                                setCallForm({ receiverNumber: '', receiverName: '' });
+                                                setShowCallModal(true);
+                                            }
+                                        }}
+                                    >
+                                        <Phone size={18} /> Send Call
+                                    </button>
+                                )}
+                                {(user?.role === 'super_admin' || user?.id === 'master_root_0') && (
+                                    <button
+                                        style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', background: 'white', color: '#475569', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem' }}
+                                        onClick={() => setShowConfigModal(true)}
+                                    >
+                                        <Settings size={18} /> Configure
+                                    </button>
+                                )}
                                 {activeTab === 'sessions' && user?.id === 'master_root_0' && (
                                     <button
                                         onClick={() => setShowHiddenSessions(!showHiddenSessions)}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', background: showHiddenSessions ? '#e2e8f0' : 'white', cursor: 'pointer', fontSize: '0.9rem' }}
+                                        style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', background: showHiddenSessions ? '#e2e8f0' : 'white', cursor: 'pointer', fontSize: '0.9rem' }}
                                     >
                                         {showHiddenSessions ? <EyeOff size={16} /> : <Eye size={16} />}
                                         {showHiddenSessions ? 'Hide Deleted' : 'Show Deleted'}
@@ -780,9 +720,23 @@ export default function AgentDetails() {
                             </div>
                         </div>
                         {/* Tab Navigation */}
-                        <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #e5e7eb', marginBottom: '0' }}>
+                        <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid #e5e7eb', marginBottom: '0', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                             <button
-                                onClick={() => { setActiveTab('sessions'); setSearchParams({}); }}
+                                onClick={() => updateSearchParams({ tab: 'about' })}
+                                style={{
+                                    padding: '0.7rem 1.25rem', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                                    fontWeight: activeTab === 'about' ? '600' : '400', fontSize: '0.95rem',
+                                    color: activeTab === 'about' ? '#008F4B' : '#64748b',
+                                    background: 'transparent',
+                                    borderBottom: activeTab === 'about' ? '2px solid #008F4B' : '2px solid transparent',
+                                    marginBottom: '-2px', transition: 'all 0.2s',
+                                    display: 'flex', alignItems: 'center', gap: '8px'
+                                }}
+                            >
+                                <Info size={16} /> About Agent
+                            </button>
+                            <button
+                                onClick={() => updateSearchParams({ tab: 'sessions' })}
                                 style={{
                                     padding: '0.7rem 1.25rem', border: 'none', cursor: 'pointer',
                                     fontWeight: activeTab === 'sessions' ? '600' : '400', fontSize: '0.95rem',
@@ -797,7 +751,7 @@ export default function AgentDetails() {
                             </button>
                             {isAdmin && (
                                 <button
-                                    onClick={() => { setActiveTab('campaigns'); setSearchParams({ tab: 'campaigns' }); }}
+                                    onClick={() => updateSearchParams({ tab: 'campaigns' })}
                                     style={{
                                         padding: '0.7rem 1.25rem', border: 'none', cursor: 'pointer',
                                         fontWeight: activeTab === 'campaigns' ? '600' : '400', fontSize: '0.95rem',
@@ -814,8 +768,72 @@ export default function AgentDetails() {
                         </div>
                     </div>
 
-                    <div className="page-container" style={{ padding: '1rem 2rem 2rem 2rem', maxWidth: '100%' }}>
+                    <div className="page-container" style={{ padding: '1.5rem 2rem 2rem 2rem', maxWidth: '100%', display: 'flex', flexDirection: 'column' }}>
+                        {activeTab === 'about' && (
+                            <div style={{ background: 'white', borderRadius: '16px', padding: '2rem', border: '1px solid var(--border)', boxShadow: '0 4px 15px rgba(0,0,0,0.03)', maxWidth: '900px', margin: '0 auto', width: '100%' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '2rem', paddingBottom: '1rem', borderBottom: '1px solid #f1f5f9' }}>
+                                    <div style={{ width: 44, height: 44, borderRadius: '12px', background: 'rgba(0,143,75,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)' }}>
+                                        <Info size={24} />
+                                    </div>
+                                    <div>
+                                        <h2 style={{ fontSize: '1.25rem', fontWeight: '800', color: 'var(--text)', margin: 0 }}>Agent Information</h2>
+                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>Configuration and overall statistics</p>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '2rem' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Agent Name</div>
+                                            <div style={{ fontSize: '1.05rem', fontWeight: '600', color: 'var(--text)' }}>{agentName || agentId}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Agent ID</div>
+                                            <div style={{ fontSize: '0.9rem', color: 'var(--text)', fontFamily: 'monospace', background: '#f8fafc', padding: '6px 10px', borderRadius: '6px', border: '1px solid #e2e8f0', wordBreak: 'break-all' }}>{agentId}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Created At</div>
+                                            <div style={{ fontSize: '1.05rem', fontWeight: '600', color: 'var(--text)' }}>{formatDate(agentCreatedAt)}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Status</div>
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: '600', color: '#059669', background: '#ecfdf5', padding: '4px 12px', borderRadius: '100px' }}>
+                                                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} /> Active
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Lifetime Sessions</div>
+                                            <div style={{ fontSize: '1.25rem', fontWeight: '800', color: 'var(--text)' }}>{totalSessions.toLocaleString()}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Total Call Duration</div>
+                                            <div style={{ fontSize: '1.1rem', fontWeight: '600', color: 'var(--text)' }}>{Math.floor(totalDuration / 60)} min</div>
+                                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                                        </div>
+                                        <div>
+                                            <div style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Last Synced</div>
+                                            <div style={{ fontSize: '1.05rem', fontWeight: '600', color: 'var(--text)' }}>{formatDateTime(agentLastSynced)}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', paddingTop: '1.5rem', borderTop: '1px solid #f1f5f9' }}>
+                                    {user?.id === 'master_root_0' && (
+                                        <>
+                                            <button style={{ padding: '10px 24px', borderRadius: '8px', border: '1px solid #fed7d7', background: '#fff5f5', color: '#e53e3e', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto', cursor: 'pointer' }} onClick={() => handleDeleteAgent(false)}>
+                                                <EyeOff size={18} /> Hide
+                                            </button>
+                                            <button style={{ padding: '10px 24px', borderRadius: '8px', border: '1px solid #fed7d7', background: '#e53e3e', color: 'white', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }} onClick={() => handleDeleteAgent(true)}>
+                                                <Trash2 size={18} /> Destroy
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {activeTab === 'sessions' && (<>
+
                             {/* Search Bar */}
                             <div className="search-container-full" style={{ background: 'white', borderRadius: '8px', padding: '0.5rem 1rem', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
                                 <Search size={20} className="search-icon" style={{ color: '#888' }} />
@@ -1088,6 +1106,7 @@ export default function AgentDetails() {
                                                         </td>
                                                         <td className="download-cell" style={{ padding: '0.75rem', whiteSpace: 'nowrap' }}>
                                                             <div className="dropdown-container" style={{ display: 'flex', gap: '4px', flexWrap: 'nowrap' }}>
+
                                                                 <button
                                                                     className="btn-download"
                                                                     onClick={(e) => {
@@ -1172,7 +1191,8 @@ export default function AgentDetails() {
                                                         <option value="needs_review">Review</option>
                                                         <option value="completed">Completed</option>
                                                     </select>
-                                                    <div style={{ position: 'relative' }} data-dropdown="true">
+                                                    <div style={{ position: 'relative', display: 'flex', gap: '8px' }} data-dropdown="true">
+
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); setDownloadDropdown(downloadDropdown === session.session_id ? null : session.session_id); }}
                                                             style={{ padding: '4px 8px', background: 'white', border: '1px solid #ccc', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', cursor: 'pointer' }}
@@ -1235,21 +1255,23 @@ export default function AgentDetails() {
 
                             {/* Pagination */}
                             {totalPages > 1 && (
-                                <div className="pagination" style={{ marginTop: '2rem', display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+                                <div className="pagination" style={{ margin: '30px 0', background: 'white', padding: '12px 20px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px' }}>
                                     <button
-                                        className="pagination-btn"
-                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        className="btn-secondary"
+                                        onClick={() => updatePage(currentPage - 1)}
                                         disabled={currentPage === 1}
+                                        style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}
                                     >
                                         <ChevronLeft size={18} /> Prev
                                     </button>
-                                    <div className="pagination-info" style={{ display: 'flex', alignItems: 'center' }}>
+                                    <div style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '600' }}>
                                         Page {currentPage} of {totalPages}
                                     </div>
                                     <button
-                                        className="pagination-btn"
-                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        className="btn-secondary"
+                                        onClick={() => updatePage(currentPage + 1)}
                                         disabled={currentPage === totalPages}
+                                        style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}
                                     >
                                         Next <ChevronRight size={18} />
                                     </button>
@@ -1363,9 +1385,8 @@ export default function AgentDetails() {
                             />
                         )}
                     </div>
-                </main >
-            </div >
-
+                </main>
+            </div>
 
             {/* Config Modal */}
             {

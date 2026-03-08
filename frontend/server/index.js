@@ -6,6 +6,10 @@ console.log('🔑 Azure Key Configured:', !!process.env.AZURE_OPENAI_API_KEY);
 console.log('📍 Azure Endpoint:', process.env.AZURE_OPENAI_ENDPOINT);
 import express from 'express';
 import pg from 'pg';
+
+// Force node-postgres to treat TIMESTAMP WITHOUT TIME ZONE as UTC instead of local
+pg.types.setTypeParser(1114, str => new Date(str.endsWith('Z') ? str : str + 'Z'));
+
 import cors from 'cors';
 import axios from 'axios';
 import nodemailer from 'nodemailer';
@@ -18,6 +22,7 @@ import paymentRoutes from './routes/payment.routes.js';
 import exotelRoutes from './routes/exotel.routes.js';
 import notificationsRoutes from './routes/notifications.routes.js';
 import { startMonitor } from './services/callMonitor.service.js';
+import { startAutoRenewalCron } from './services/subscriptionRenewal.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -114,7 +119,7 @@ const getExotelRecordingUrl = async (callSid, returnFull = false) => {
     }
 };
 
-// Audio Proxy to bypass CORS issues
+// Audio Proxy to bypass CORS issues and support seeking (Range requests)
 app.get('/api/proxy-recording', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).send('URL is required');
@@ -126,23 +131,37 @@ app.get('/api/proxy-recording', async (req, res) => {
 
     try {
         let targetUrl = url;
-        // Force .com for recordings as .in often has DNS issues
         if (targetUrl && targetUrl.includes('recordings.exotel.in')) {
             targetUrl = targetUrl.replace('recordings.exotel.in', 'recordings.exotel.com');
         }
 
-        console.log(`🔊 Proxying recording: ${targetUrl}`);
         const auth = Buffer.from(`${exotelConfig.apiKey}:${exotelConfig.apiToken}`).toString('base64');
+        const headers = { 'Authorization': `Basic ${auth}` };
+
+        // Pass through Range header if present
+        if (req.headers.range) {
+            headers['Range'] = req.headers.range;
+        }
+
+        console.log(`🔊 Proxying recording: ${targetUrl} (Range: ${req.headers.range || 'none'})`);
+
         const response = await axios({
             method: 'get',
             url: targetUrl,
             responseType: 'stream',
-            headers: { 'Authorization': `Basic ${auth}` },
-            timeout: 10000
+            headers: headers,
+            timeout: 15000,
+            validateStatus: (status) => status < 500 // Accept 206 and other successful statuses
         });
 
-        // Pass through headers
+        // Pass through critical headers
+        res.status(response.status);
         res.setHeader('Content-Type', response.headers['content-type'] || 'audio/mpeg');
+        res.setHeader('Accept-Ranges', 'bytes');
+
+        if (response.headers['content-range']) {
+            res.setHeader('Content-Range', response.headers['content-range']);
+        }
         if (response.headers['content-length']) {
             res.setHeader('Content-Length', response.headers['content-length']);
         }
@@ -152,7 +171,9 @@ app.get('/api/proxy-recording', async (req, res) => {
     } catch (error) {
         const statusCode = error.response ? error.response.status : 500;
         console.error(`❌ Proxy failed for ${url}: ${error.message} (Status: ${statusCode})`);
-        res.status(statusCode).send(`Failed to proxy recording: ${error.message}`);
+        if (!res.headersSent) {
+            res.status(statusCode).send(`Failed to proxy recording: ${error.message}`);
+        }
     }
 });
 const APP_ENV = process.env.APP_ENV || 'production';
@@ -431,10 +452,23 @@ const initDatabase = async () => {
             { name: 'to_number', type: 'TEXT' },
             { name: 'call_status', type: 'TEXT' },
             { name: 'recording_url', type: 'TEXT' },
+            { name: 'duration_seconds', type: 'INTEGER DEFAULT 0' },  // exact seconds for ledger display
         ];
         for (const col of usageCols) {
             await pool.query(`ALTER TABLE "${usageTable}" ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`).catch(() => { });
         }
+
+        // Ensure call_sid is unique so ON CONFLICT (call_sid) DO NOTHING prevents duplicate billing on restart
+        // First: remove any duplicate call_sid rows that exist from previous server restarts (keep earliest row)
+        await pool.query(`
+            DELETE FROM "${usageTable}" a
+            USING "${usageTable}" b
+            WHERE a.id > b.id
+              AND a.call_sid = b.call_sid
+              AND a.call_sid IS NOT NULL
+        `).catch(() => { });
+        // Now safe to create unique index
+        await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_usagelogs_call_sid ON "${usageTable}" (call_sid) WHERE call_sid IS NOT NULL`).catch((e) => { console.warn('⚠️ call_sid unique index:', e.message); });
 
         // Notifications
         const notificationsTable = getTableName('Notifications');
@@ -481,6 +515,9 @@ const initDatabase = async () => {
 
         // Start Monitor
         startMonitor();
+
+        // Start subscription auto-renewal cron (runs hourly)
+        startAutoRenewalCron();
 
         // Seed Default Super Admin
         const adminEmail = 'admin@farmvaidya.ai';
@@ -712,10 +749,11 @@ app.get('/api/me', async (req, res) => {
 
             // Recursive check for creator status
             let effectiveBalance = user.minutes_balance || 0;
+            let creator = null;
 
             if (user.created_by) {
                 const creatorResult = await pool.query(`SELECT is_active, role, minutes_balance, subscription_expiry FROM "${getTableName('Users')}" WHERE user_id = $1`, [user.created_by]);
-                const creator = creatorResult.rows[0];
+                creator = creatorResult.rows[0];
                 if (creator) {
                     if (!creator.is_active) {
                         isEffectiveActive = false;
@@ -741,7 +779,8 @@ app.get('/api/me', async (req, res) => {
                     isActive: isEffectiveActive,
                     deactivationReason: deactivationReason,
                     minutes_balance: effectiveBalance,
-                    subscription_expiry: user.subscription_expiry, // Keep original or inherit? Usually User doesn't have expiry, Admin does.
+                    // If agent, show creator's expiry so the dashboard status is accurate
+                    subscription_expiry: user.role === 'user' && user.created_by && creator ? creator.subscription_expiry : user.subscription_expiry,
                     created_by: user.created_by,
                     mustChangePassword: user.must_change_password
                 }
@@ -932,16 +971,29 @@ app.get('/api/agents', async (req, res) => {
                 ? 'computed_last_session'
                 : `a."${sortBy}"`;
 
-        const dataQuery = `
-            SELECT a.*, 
-            (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_session_count,
-            (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01' AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_total_duration,
-            (SELECT MAX(started_at) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_last_session
-            ${baseQuery}
-            ${whereSql}
-            ORDER BY ${finalSortBy} ${sortOrder} NULLS LAST
-            LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-        `;
+        const isSimple = req.query.simple === 'true';
+
+        let dataQuery;
+        if (isSimple) {
+            dataQuery = `
+                SELECT a.agent_id, a.name 
+                ${baseQuery}
+                ${whereSql}
+                ORDER BY a.name ASC
+                LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+            `;
+        } else {
+            dataQuery = `
+                SELECT a.*, 
+                (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_session_count,
+                (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01' AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_total_duration,
+                (SELECT MAX(started_at) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_last_session
+                ${baseQuery}
+                ${whereSql}
+                ORDER BY ${finalSortBy} ${sortOrder} NULLS LAST
+                LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+            `;
+        }
 
         const countTotalQuery = `SELECT COUNT(a.*) ${baseQuery} ${whereSql}`;
 
@@ -1621,6 +1673,24 @@ app.get('/api/users', async (req, res) => {
             adminAgentIds = adminAgentsRes.rows.map(r => r.agent_id);
         }
 
+        // --- N+1 OPTIMIZATION ---
+        // Fetch User_Agents for all user_ids returned in this page
+        const userIds = users.map(u => u.user_id);
+        let userAgentsMap = {};
+        if (userIds.length > 0) {
+            const uaRes = await pool.query(`
+                SELECT user_id, agent_id, can_mark 
+                FROM "${getTableName('User_Agents')}" 
+                WHERE user_id = ANY($1)
+            `, [userIds]);
+
+            // Build a map of user_id -> [ { agent_id, can_mark } ]
+            uaRes.rows.forEach(r => {
+                if (!userAgentsMap[r.user_id]) userAgentsMap[r.user_id] = [];
+                userAgentsMap[r.user_id].push({ agent_id: r.agent_id, can_mark: r.can_mark });
+            });
+        }
+
         for (let user of users) {
             if (user.role === 'user' && user.created_by) {
                 user.subscription_expiry = user.creator_subscription_expiry;
@@ -1631,38 +1701,13 @@ app.get('/api/users', async (req, res) => {
                 user.agents = allAgentIds;
                 user.agentCount = allAgentIds.length;
                 user.agentPermissions = {}; // Super admin has all permissions by default
-            } else if (user.role === 'admin' && reqUser.role === 'super_admin') {
-                // For super_admin viewing an admin, show that admin's specifically assigned agents
-                const agentData = await pool.query(
-                    `SELECT agent_id, can_mark FROM "${getTableName('User_Agents')}" WHERE user_id = $1`,
-                    [user.user_id]
-                );
-                user.agents = agentData.rows.map(r => r.agent_id);
-                user.agentCount = user.agents.length;
-                user.agentPermissions = Object.fromEntries(
-                    agentData.rows.map(r => [r.agent_id, r.can_mark || false])
-                );
-            } else if (user.role === 'admin' && user.user_id === requesterId) {
-                // For admin viewing themselves, show their assigned agents
-                const agentData = await pool.query(
-                    `SELECT agent_id, can_mark FROM "${getTableName('User_Agents')}" WHERE user_id = $1`,
-                    [user.user_id]
-                );
-                user.agents = agentData.rows.map(r => r.agent_id);
-                user.agentCount = user.agents.length;
-                user.agentPermissions = Object.fromEntries(
-                    agentData.rows.map(r => [r.agent_id, r.can_mark || false])
-                );
             } else {
-                // Regular users or users managed by an admin
-                const agentData = await pool.query(
-                    `SELECT agent_id, can_mark FROM "${getTableName('User_Agents')}" WHERE user_id = $1`,
-                    [user.user_id]
-                );
-                user.agents = agentData.rows.map(r => r.agent_id);
+                // For admin or regular user, read from the pre-fetched map
+                const mappedAgents = userAgentsMap[user.user_id] || [];
+                user.agents = mappedAgents.map(r => r.agent_id);
                 user.agentCount = user.agents.length;
                 user.agentPermissions = Object.fromEntries(
-                    agentData.rows.map(r => [r.agent_id, r.can_mark || false])
+                    mappedAgents.map(r => [r.agent_id, r.can_mark || false])
                 );
             }
         }
@@ -1926,6 +1971,16 @@ VALUES($1, $2) ON CONFLICT DO NOTHING
         `, [userId, agentId]);
 
         const agents = await pool.query(`SELECT agent_id FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [userId]);
+
+        // Notify the user about the new agent
+        try {
+            const { notifyAgentAssigned } = await import('./services/notification.service.js');
+            const userRow = await pool.query(`SELECT email FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]);
+            if (userRow.rows[0]) {
+                notifyAgentAssigned(userId, userRow.rows[0].email, agentId).catch(() => { });
+            }
+        } catch (_) { }
+
         res.json({ success: true, agents: agents.rows.map(r => r.agent_id) });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1947,12 +2002,17 @@ app.put('/api/users/:userId/agents', async (req, res) => {
     const { agents } = req.body; // Expects array of agent IDs
 
     try {
+        // Fetch existing agents before deleting
+        const existingAgentsRes = await pool.query(`SELECT agent_id FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [userId]);
+        const existingAgents = existingAgentsRes.rows.map(r => r.agent_id);
+
         await pool.query(`DELETE FROM "${getTableName('User_Agents')}" WHERE user_id = $1`, [userId]);
 
         if (agents && agents.length > 0) {
             // Agent Assignment Constraint Check
-            const uRes = await pool.query(`SELECT role FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]);
-            const targetRole = uRes.rows[0]?.role;
+            const uRes = await pool.query(`SELECT role, email FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]);
+            const targetUser = uRes.rows[0];
+            const targetRole = targetUser?.role;
 
             if (targetRole === 'admin' || targetRole === 'super_admin') {
                 for (const agentId of agents) {
@@ -1974,6 +2034,22 @@ app.put('/api/users/:userId/agents', async (req, res) => {
                     INSERT INTO "${getTableName('User_Agents')}"(user_id, agent_id)
 VALUES($1, $2)
                 `, [userId, agentId]);
+            }
+
+            // Notify the target user about agent assignment ONLY if the list changed
+            const newAgentList = [...agents].sort().join(',');
+            const oldAgentList = [...existingAgents].sort().join(',');
+
+            if (newAgentList !== oldAgentList) {
+                try {
+                    const { notifyAgentAssigned } = await import('./services/notification.service.js');
+                    if (targetUser?.email) {
+                        notifyAgentAssigned(
+                            userId, targetUser.email,
+                            `${agents.length} agent(s) (IDs: ${agents.join(', ')})`
+                        ).catch(() => { });
+                    }
+                } catch (_) { }
             }
         }
 
@@ -2644,6 +2720,24 @@ app.post('/api/admin/users/:userId/agents/:agentId/mark-permission', async (req,
     `, [canMark, userId, agentId]);
 
         console.log(`✅ Mark permission updated: User ${userId} on Agent ${agentId} -> can_mark: ${canMark}`);
+
+        // Try to send a notification to the user
+        try {
+            const { createNotification } = await import('./services/notification.service.js');
+            const agentRes = await pool.query(`SELECT name FROM "${getTableName('Agents')}" WHERE agent_id = $1`, [agentId]);
+            if (agentRes.rows.length > 0) {
+                const agentName = agentRes.rows[0].name;
+                const actionText = canMark ? 'granted' : 'revoked';
+                await createNotification(
+                    userId,
+                    'system',
+                    'Permissions Updated',
+                    `Your permission to mark sessions for the agent "${agentName}" has been ${actionText}.`
+                );
+            }
+        } catch (noteErr) {
+            console.error('Failed to send permission notification:', noteErr.message);
+        }
 
         res.json({
             success: true,

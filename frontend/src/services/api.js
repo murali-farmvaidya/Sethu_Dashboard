@@ -96,7 +96,7 @@ export const authAPI = {
 };
 
 export const campaignAPI = {
-    getAllCampaigns: () => api.get('/api/campaigns'),
+    getAllCampaigns: (agentId) => api.get(`/api/campaigns${agentId ? `?agentId=${agentId}` : ''}`),
     getCampaignCallDetails: (campaignId) => api.get(`/api/campaigns/${campaignId}/calls`),
     createCampaign: (formData) => api.post('/api/campaigns', formData, {
         headers: {
@@ -113,7 +113,8 @@ export const paymentAPI = {
     createRecharge: (amount) => api.post('/api/payment/minutes/create', { amount }),
     verifyPayment: (data) => api.post('/api/payment/verify', data),
     getBalances: () => api.get('/api/payment/balances'),
-    getTransactionHistory: (filter = 'all', page = 1, limit = 50) => api.get('/api/payment/history', { params: { filter, page, limit } }),
+    getTransactionHistory: (filter = 'all', page = 1, limit = 50, direction = '', search = '', targetUserId = '') =>
+        api.get('/api/payment/history', { params: { filter, page, limit, ...(direction && { direction }), ...(search && { search }), ...(targetUserId && { targetUserId }) } }),
     adjustCredits: (amount, targetUserId) => api.post('/api/payment/adjust-credits', { amount, targetUserId }),
     getHeatmap: (userId) => api.get('/api/payment/heatmap', { params: userId ? { userId } : {} }),
 };

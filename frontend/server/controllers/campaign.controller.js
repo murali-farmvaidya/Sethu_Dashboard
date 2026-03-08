@@ -725,16 +725,40 @@ export const initiateCampaign = async (req, res) => {
 export const getCampaigns = async (req, res) => {
     try {
         await ensureLocalCampaignsTable();
+        const { agentId } = req.query;
+
+        // Basic Auth check to determine role (to permit 'show all' behavior eventually)
+        const authHeader = req.headers.authorization;
+        let isSuperAdmin = false;
+        if (authHeader) {
+            try {
+                const token = authHeader.split(' ')[1];
+                const decoded = jwt.verify(token, process.env.JWT_SECRET);
+                if (decoded && (decoded.role === 'super_admin' || decoded.userId === 'master_root_0')) {
+                    isSuperAdmin = true;
+                }
+            } catch (e) { /* ignore auth failure for listing, it might be handled upstream */ }
+        }
 
         // Fetch local campaigns from DB
-        const localResult = await pool.query(
-            `SELECT * FROM "${LOCAL_CAMPAIGNS_TABLE}" ORDER BY date_created DESC`
-        );
+        let localQuery = `SELECT * FROM "${LOCAL_CAMPAIGNS_TABLE}"`;
+        const params = [];
+
+        // If not super admin OR if explicit agentId provided, filter by it
+        // Note: Even super admins usually want to see one agent's campaigns in the detail view
+        if (agentId) {
+            localQuery += ` WHERE agent_id = $1`;
+            params.push(agentId);
+        }
+        localQuery += ` ORDER BY date_created DESC`;
+
+        const localResult = await pool.query(localQuery, params);
         const localCampaigns = localResult.rows.map(row => ({
             data: {
                 id: row.id,
                 name: row.name,
                 status: row.status,
+                agent_id: row.agent_id,
                 date_created: row.date_created,
                 date_updated: row.date_updated,
                 throttle: row.concurrent_lines,
@@ -752,7 +776,7 @@ export const getCampaigns = async (req, res) => {
             }
         }));
 
-        // Also fetch Exotel campaigns for legacy display
+        // Fetch Exotel campaigns for legacy display
         let exotelCampaigns = [];
         try {
             const response = await exotelService.getAllCampaigns();
@@ -763,9 +787,20 @@ export const getCampaigns = async (req, res) => {
                 const table = process.env.APP_ENV === 'test' ? 'test_excluded_items' : 'Excluded_Items';
                 const excludedRes = await pool.query(`SELECT item_id FROM "${table}" WHERE item_type = 'campaign'`);
                 const excludedIds = new Set(excludedRes.rows.map(r => r.item_id));
+
+                // SUFFIX Match for agent isolation in Exotel (naming convention)
+                const suffix = agentId ? `_ag${agentId.slice(-4)}`.toLowerCase() : '';
+
                 exotelCampaigns = exotelCampaigns.filter(c => {
                     const id = c.sid || c.id || (c.data && c.data.id);
-                    return !excludedIds.has(id);
+                    if (excludedIds.has(id)) return false;
+
+                    // If agentId specified, strictly filter by name suffix
+                    if (agentId) {
+                        const name = (c.friendly_name || c.name || (c.data && c.data.name) || '').toLowerCase();
+                        return name.includes(`_ag${agentId}`.toLowerCase()) || (suffix && name.includes(suffix));
+                    }
+                    return true;
                 });
             } catch (dbErr) {
                 console.error('Error filtering excluded campaigns:', dbErr);

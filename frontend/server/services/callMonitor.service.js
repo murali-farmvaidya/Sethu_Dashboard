@@ -145,22 +145,30 @@ export const startMonitor = () => {
                                 }
                             }
 
-                            // Log Usage with full call details
+                            // Log Usage with full call details — check for duplicate call_sid before inserting
                             const direction = callDetails.Direction === 'inbound' ? 'inbound' : 'outbound';
-                            await pool.query(
-                                `INSERT INTO "${usageTable}" (id, user_id, call_sid, minutes_used, direction, from_number, to_number, call_status, recording_url, timestamp, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())`,
-                                [
-                                    crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(7),
-                                    call.user_id,
-                                    call.call_sid,
-                                    durationMinutes,
-                                    direction,
-                                    callDetails.From || null,
-                                    callDetails.To || null,
-                                    callDetails.Status || 'completed',
-                                    callDetails.RecordingUrl || null
-                                ]
-                            );
+                            const existingLog = await pool.query(`SELECT id FROM "${usageTable}" WHERE call_sid = $1 LIMIT 1`, [call.call_sid]);
+                            if (existingLog.rows.length > 0) {
+                                console.log(`⚠️ Skipping duplicate UsageLog for call_sid ${call.call_sid}`);
+                            } else {
+                                await pool.query(
+                                    `INSERT INTO "${usageTable}" (id, user_id, call_sid, minutes_used, duration_seconds, direction, from_number, to_number, call_status, recording_url, timestamp, created_at, updated_at)
+                                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW(), NOW())`,
+                                    [
+                                        crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(7),
+                                        call.user_id,
+                                        call.call_sid,
+                                        durationMinutes,
+                                        duration,
+                                        direction,
+                                        callDetails.From || null,
+                                        callDetails.To || null,
+                                        callDetails.Status || 'completed',
+                                        callDetails.RecordingUrl || null
+                                    ]
+                                );
+                            }
+
                         } else {
                             console.log(`StartMonitor: Skipping deduction for Exempt User ${call.user_id}`);
                         }

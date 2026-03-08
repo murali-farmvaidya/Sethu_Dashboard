@@ -1,10 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { adminAPI } from '../services/api';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff, CheckSquare, Square, MinusSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import Header from '../components/Header';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -51,13 +50,30 @@ export default function Dashboard() {
     const [stats, setStats] = useState({ totalAgents: 0, totalSessions: 0, successRate: 0 });
     const [activeSessions, setActiveSessions] = useState({ agents: [], totalActiveSessions: 0, agentsWithActiveSessions: 0 });
     const [loading, setLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [currentPage, setCurrentPage] = useState(1);
+    const navigate = useNavigate();
+    const location = useLocation();
+    const [searchParams, setSearchParams] = useSearchParams();
+
+    const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
+    const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page')) || 1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalAgents, setTotalAgents] = useState(0);
-    const [sortBy, setSortBy] = useState('recent');
-    const [sortOrder, setSortOrder] = useState('desc');
-    const navigate = useNavigate();
+    const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || 'recent');
+    const [sortOrder, setSortOrder] = useState(searchParams.get('sortOrder') || 'desc');
+
+    const updateSearchParams = useCallback((updates) => {
+        const nextParams = new URLSearchParams(searchParams);
+        Object.entries(updates).forEach(([key, value]) => {
+            if (value === null || value === undefined || value === '') {
+                nextParams.delete(key);
+            } else {
+                nextParams.set(key, value);
+            }
+        });
+        setSearchParams(nextParams, { replace: true });
+    }, [searchParams, setSearchParams]);
+
+    const isAnalyticsPage = location.pathname === '/admin/dashboard';
 
     const [recycleBinOpen, setRecycleBinOpen] = useState(false);
     const [hiddenAgents, setHiddenAgents] = useState([]);
@@ -299,19 +315,26 @@ export default function Dashboard() {
     // Debounce search
     useEffect(() => {
         const timer = setTimeout(() => {
-            setCurrentPage(1);
+            const urlSearch = searchParams.get('search') || '';
+            if (searchTerm !== urlSearch) {
+                updateSearchParams({ search: searchTerm, page: 1 });
+                setCurrentPage(1);
+            }
         }, 300);
         return () => clearTimeout(timer);
-    }, [searchTerm]);
+    }, [searchTerm, updateSearchParams, searchParams]);
+
+    const updatePage = (page) => {
+        setCurrentPage(page);
+        updateSearchParams({ page });
+    };
 
     const handleSort = (field) => {
-        if (sortBy === field) {
-            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortBy(field);
-            setSortOrder('desc');
-        }
+        const newOrder = sortBy === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc';
+        setSortBy(field);
+        setSortOrder(newOrder);
         setCurrentPage(1);
+        updateSearchParams({ sortBy: field, sortOrder: newOrder, page: 1 });
     };
 
     const handleDeleteAgent = (agentId, e, permanent = false) => {
@@ -337,101 +360,30 @@ export default function Dashboard() {
 
     return (
         <React.Fragment>
-            <Header />
-            <div className="dashboard-layout">
-                {/* Left Sidebar */}
-                <aside className="dashboard-sidebar">
-                    {/* Mobile Toggle Header */}
-                    <div className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-                        <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)' }}>Dashboard Menu</h3>
-                        {isSidebarOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                    </div>
-
-                    <div className={`sidebar-content ${isSidebarOpen ? 'open' : ''}`}>
-                        <div className="stats-vertical">
-                            <div className="stat-card-vertical">
-                                <div className="stat-icon"><Users size={24} /></div>
-                                <div className="stat-info">
-                                    <p className="stat-value">{stats.totalAgents || 0}</p>
-                                    <p className="stat-label">Total Agents</p>
-                                    {user?.id === 'master_root_0' && stats.hiddenStats?.agents > 0 && (
-                                        <p className="stat-sublabel" style={{ color: '#ef4444', fontSize: '0.75rem', marginTop: '2px' }}>
-                                            (+{stats.hiddenStats.agents} hidden)
-                                        </p>
-                                    )}
-                                </div>
+            <div className="dashboard-main-content" style={{ padding: '0', maxWidth: '100%' }}>
+                {/* ── Analytics Page Only ── */}
+                {isAnalyticsPage && (
+                    <>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                            <div style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Agents</span>
+                                <span style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text)', marginTop: '8px' }}>{stats.totalAgents || 0}</span>
                             </div>
-                            <div className="stat-card-vertical">
-                                <div className="stat-icon"><MessageSquare size={24} /></div>
-                                <div className="stat-info">
-                                    <p className="stat-value">{stats.totalSessions || 0}</p>
-                                    <p className="stat-label">Total Sessions</p>
-                                </div>
+                            <div style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Sessions</span>
+                                <span style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text)', marginTop: '8px' }}>{stats.totalSessions || 0}</span>
                             </div>
-                            <div className="stat-card-vertical">
-                                <div className="stat-icon"><Clock size={24} /></div>
-                                <div className="stat-info">
-                                    <p className="stat-value">
-                                        {Math.floor((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
-                                    </p>
-                                    <p className="stat-label">Total Usage</p>
-                                    <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
-                                        Jan 1, 2026 - {new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                    </p>
-                                </div>
+                            <div style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                                <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Usage</span>
+                                <span style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text)', marginTop: '8px' }}>{Math.floor((stats.totalDuration || 0) / 60).toLocaleString()} min</span>
+                                <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-muted)', marginTop: '8px' }}>Since Jan 1, 2026</span>
                             </div>
-
                         </div>
+                    </>
+                )}
 
-                        <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {user?.id === 'master_root_0' && (
-                                <button
-                                    className="btn-logout"
-                                    onClick={() => navigate('/master/status')}
-                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--primary)' }}
-                                >
-                                    <Activity size={18} /> System Status
-                                </button>
-                            )}
-                            {user?.id === 'master_root_0' && (
-                                <button
-                                    className="btn-logout"
-                                    onClick={() => setRecycleBinOpen(true)}
-                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: '#64748b' }}
-                                >
-                                    <RotateCcw size={18} /> Recycle Bin
-                                </button>
-                            )}
-                            <button className="btn-logout" onClick={() => navigate('/change-password')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--text)' }}>
-                                <Lock size={18} /> Change Password
-                            </button>
-                            <button className="btn-logout" onClick={() => { localStorage.clear(); navigate('/login'); }}>
-                                Logout
-                            </button>
-                        </div>
-                    </div>
-                </aside>
-
-                {/* Main Content */}
-                <main className="dashboard-main">
-                    <header className="dashboard-header-title">
-                        {/* Title moved to top header */}
-                    </header>
-
-                    {/* Search Bar */}
-                    <div className="search-container">
-                        <Search size={20} className="search-icon" />
-                        <input
-                            type="text"
-                            className="search-input"
-                            placeholder="Search agents..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
-                    </div>
-
-                    {/* Animations */}
-                    <style>{`
+                {/* Animations */}
+                <style>{`
                         @keyframes activePulse {
                             0%   { box-shadow: 0 0 0 0   rgba(0,143,75,0.8); }
                             70%  { box-shadow: 0 0 0 7px rgba(0,143,75,0); }
@@ -443,340 +395,356 @@ export default function Dashboard() {
                         }
                     `}</style>
 
-                    {/* ── Active Calls Summary Panel (only visible when sessions > 0) ── */}
-                    {activeSessions.totalActiveSessions > 0 && (
+                {/* ── Active Calls Summary Panel (only visible when sessions > 0) ── */}
+                {activeSessions.totalActiveSessions > 0 && (
+                    <div style={{
+                        marginBottom: '18px',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        border: '1.5px solid #008F4B',
+                        background: '#fff',
+                        boxShadow: '0 2px 16px rgba(0,143,75,0.10)',
+                        animation: 'panelSlideIn 0.25s ease'
+                    }}>
+                        {/* Header */}
                         <div style={{
-                            marginBottom: '18px',
-                            borderRadius: '12px',
-                            overflow: 'hidden',
-                            border: '1.5px solid #008F4B',
-                            background: '#fff',
-                            boxShadow: '0 2px 16px rgba(0,143,75,0.10)',
-                            animation: 'panelSlideIn 0.25s ease'
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 16px',
+                            background: '#008F4B',
                         }}>
-                            {/* Header */}
-                            <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '10px 16px',
-                                background: '#008F4B',
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                                    {/* Pulsing live dot */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
+                                {/* Pulsing live dot */}
+                                <span style={{
+                                    display: 'inline-block',
+                                    width: '9px', height: '9px',
+                                    borderRadius: '50%',
+                                    background: '#FFC805',
+                                    animation: 'activePulse 1.4s ease-in-out infinite',
+                                    flexShrink: 0
+                                }} />
+                                <span style={{
+                                    fontWeight: '700',
+                                    fontSize: '0.9rem',
+                                    color: '#fff',
+                                    letterSpacing: '0.02em'
+                                }}>
+                                    Active Calls
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{
+                                    background: '#FFC805',
+                                    color: '#000',
+                                    fontWeight: '800',
+                                    fontSize: '0.82rem',
+                                    padding: '2px 11px',
+                                    borderRadius: '20px'
+                                }}>
+                                    {activeSessions.agentsWithActiveSessions} agent{activeSessions.agentsWithActiveSessions !== 1 ? 's' : ''}
+                                </span>
+                                <span style={{
+                                    background: 'rgba(255,255,255,0.18)',
+                                    color: '#fff',
+                                    fontWeight: '800',
+                                    fontSize: '0.82rem',
+                                    padding: '2px 12px',
+                                    borderRadius: '20px',
+                                    border: '1px solid rgba(255,255,255,0.3)'
+                                }}>
+                                    {activeSessions.totalActiveSessions} session{activeSessions.totalActiveSessions !== 1 ? 's' : ''}
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* Agent tiles */}
+                        <div style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '8px',
+                            padding: '12px 16px'
+                        }}>
+                            {activeSessions.agents.map(agent => (
+                                <div
+                                    key={agent.agent_id}
+                                    onClick={() => navigate(`/admin/agent/${agent.agent_id}`)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        padding: '7px 12px 7px 9px',
+                                        borderRadius: '8px',
+                                        background: '#f0faf5',
+                                        border: '1px solid #c5e8d5',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.18s ease',
+                                        minWidth: '140px'
+                                    }}
+                                    onMouseEnter={e => {
+                                        e.currentTarget.style.background = '#e0f5ea';
+                                        e.currentTarget.style.borderColor = '#008F4B';
+                                        e.currentTarget.style.transform = 'translateY(-1px)';
+                                    }}
+                                    onMouseLeave={e => {
+                                        e.currentTarget.style.background = '#f0faf5';
+                                        e.currentTarget.style.borderColor = '#c5e8d5';
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                    }}
+                                >
+                                    {/* Pulse dot */}
                                     <span style={{
                                         display: 'inline-block',
-                                        width: '9px', height: '9px',
+                                        width: '7px', height: '7px',
                                         borderRadius: '50%',
-                                        background: '#FFC805',
+                                        background: '#008F4B',
                                         animation: 'activePulse 1.4s ease-in-out infinite',
                                         flexShrink: 0
                                     }} />
+                                    {/* Agent name */}
                                     <span style={{
-                                        fontWeight: '700',
-                                        fontSize: '0.9rem',
-                                        color: '#fff',
-                                        letterSpacing: '0.02em'
+                                        fontWeight: '600',
+                                        fontSize: '0.82rem',
+                                        color: '#1a2e23',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        maxWidth: '150px',
+                                        flex: 1
                                     }}>
-                                        Active Calls
+                                        {agent.agent_name}
                                     </span>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    {/* Count badge */}
                                     <span style={{
                                         background: '#FFC805',
                                         color: '#000',
                                         fontWeight: '800',
-                                        fontSize: '0.82rem',
-                                        padding: '2px 11px',
-                                        borderRadius: '20px'
+                                        fontSize: '0.78rem',
+                                        padding: '1px 8px',
+                                        borderRadius: '12px',
+                                        flexShrink: 0
                                     }}>
-                                        {activeSessions.agentsWithActiveSessions} agent{activeSessions.agentsWithActiveSessions !== 1 ? 's' : ''}
-                                    </span>
-                                    <span style={{
-                                        background: 'rgba(255,255,255,0.18)',
-                                        color: '#fff',
-                                        fontWeight: '800',
-                                        fontSize: '0.82rem',
-                                        padding: '2px 12px',
-                                        borderRadius: '20px',
-                                        border: '1px solid rgba(255,255,255,0.3)'
-                                    }}>
-                                        {activeSessions.totalActiveSessions} session{activeSessions.totalActiveSessions !== 1 ? 's' : ''}
+                                        {agent.active_session_count}
                                     </span>
                                 </div>
-                            </div>
-
-                            {/* Agent tiles */}
-                            <div style={{
-                                display: 'flex',
-                                flexWrap: 'wrap',
-                                gap: '8px',
-                                padding: '12px 16px'
-                            }}>
-                                {activeSessions.agents.map(agent => (
-                                    <div
-                                        key={agent.agent_id}
-                                        onClick={() => navigate(`/admin/agent/${agent.agent_id}`)}
-                                        style={{
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '8px',
-                                            padding: '7px 12px 7px 9px',
-                                            borderRadius: '8px',
-                                            background: '#f0faf5',
-                                            border: '1px solid #c5e8d5',
-                                            cursor: 'pointer',
-                                            transition: 'all 0.18s ease',
-                                            minWidth: '140px'
-                                        }}
-                                        onMouseEnter={e => {
-                                            e.currentTarget.style.background = '#e0f5ea';
-                                            e.currentTarget.style.borderColor = '#008F4B';
-                                            e.currentTarget.style.transform = 'translateY(-1px)';
-                                        }}
-                                        onMouseLeave={e => {
-                                            e.currentTarget.style.background = '#f0faf5';
-                                            e.currentTarget.style.borderColor = '#c5e8d5';
-                                            e.currentTarget.style.transform = 'translateY(0)';
-                                        }}
-                                    >
-                                        {/* Pulse dot */}
-                                        <span style={{
-                                            display: 'inline-block',
-                                            width: '7px', height: '7px',
-                                            borderRadius: '50%',
-                                            background: '#008F4B',
-                                            animation: 'activePulse 1.4s ease-in-out infinite',
-                                            flexShrink: 0
-                                        }} />
-                                        {/* Agent name */}
-                                        <span style={{
-                                            fontWeight: '600',
-                                            fontSize: '0.82rem',
-                                            color: '#1a2e23',
-                                            whiteSpace: 'nowrap',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            maxWidth: '150px',
-                                            flex: 1
-                                        }}>
-                                            {agent.agent_name}
-                                        </span>
-                                        {/* Count badge */}
-                                        <span style={{
-                                            background: '#FFC805',
-                                            color: '#000',
-                                            fontWeight: '800',
-                                            fontSize: '0.78rem',
-                                            padding: '1px 8px',
-                                            borderRadius: '12px',
-                                            flexShrink: 0
-                                        }}>
-                                            {agent.active_session_count}
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Sorting & Info */}
-                    <div className="section-header">
-                        <h2 className="section-title">Agents Overview</h2>
-                        <div className="section-controls">
-                            <span className="section-count">
-                                {totalAgents} agents
-                                {selectedAgents.size > 0 && (
-                                    <span style={{ marginLeft: '10px', background: '#008F4B', color: 'white', padding: '2px 10px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '600' }}>
-                                        {selectedAgents.size} selected
-                                    </span>
-                                )}
-                            </span>
-                            <button
-                                className="btn-sort"
-                                onClick={() => handleSort('recent')}
-                                style={{
-                                    background: sortBy === 'recent' ? '#e6f4ed' : 'white',
-                                    borderColor: sortBy === 'recent' ? 'var(--primary)' : 'var(--border)',
-                                    color: sortBy === 'recent' ? 'var(--primary)' : 'var(--text)'
-                                }}
-                            >
-                                <ArrowUpDown size={16} />
-                                Recently Active {sortBy === 'recent' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
-                            </button>
-                            <button
-                                className="btn-sort"
-                                onClick={() => handleSort('session_count')}
-                                style={{
-                                    background: sortBy === 'session_count' ? '#e6f4ed' : 'white',
-                                    borderColor: sortBy === 'session_count' ? 'var(--primary)' : 'var(--border)',
-                                    color: sortBy === 'session_count' ? 'var(--primary)' : 'var(--text)'
-                                }}
-                            >
-                                <ArrowUpDown size={16} />
-                                Sessions {sortBy === 'session_count' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
-                            </button>
-                            <button
-                                className="btn-sort"
-                                onClick={() => handleSort('name')}
-                                style={{
-                                    background: sortBy === 'name' ? '#e6f4ed' : 'white',
-                                    borderColor: sortBy === 'name' ? 'var(--primary)' : 'var(--border)',
-                                    color: sortBy === 'name' ? 'var(--primary)' : 'var(--text)'
-                                }}
-                            >
-                                <ArrowUpDown size={16} />
-                                Name {sortBy === 'name' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
-                            </button>
+                            ))}
                         </div>
                     </div>
+                )}
 
-
-                    {/* Bulk Action Bar for Agents */}
-                    {selectedAgents.size > 0 && user?.id === 'master_root_0' && (
-                        <div style={{
-                            background: 'linear-gradient(135deg, #008F4B, #00753e)', color: 'white',
-                            padding: '12px 20px', borderRadius: '10px', marginBottom: '12px',
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            boxShadow: '0 4px 20px rgba(0,143,75,0.3)'
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <CheckSquare size={18} />
-                                <span style={{ fontWeight: '600' }}>{selectedAgents.size} agent{selectedAgents.size > 1 ? 's' : ''} selected</span>
-                                <button onClick={clearAgentSelection} style={{
-                                    background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
-                                    padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem'
-                                }}>Clear</button>
+                {/* Sorting & Info */}
+                {/* ── Agents Grid (Hide on purely Analytics page) ── */}
+                {!isAnalyticsPage && (
+                    <div className="dashboard-grid">
+                        <div className="agents-header-row" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', gap: '16px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: '300px' }}>
+                                <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, whiteSpace: 'nowrap' }}>
+                                    {totalAgents} agents
+                                </h2>
+                                <div className="search-container" style={{ margin: 0, flex: 1, maxWidth: '400px' }}>
+                                    <Search size={20} className="search-icon" />
+                                    <input
+                                        type="text"
+                                        className="search-input"
+                                        placeholder="Search agents..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                {selectedAgents.size > 0 && (
+                                    <div className="bulk-actions">
+                                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-muted)' }}>
+                                            {selectedAgents.size} selected
+                                        </span>
+                                    </div>
+                                )}
                             </div>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                                <button onClick={() => handleBulkAgentAction(false)} style={{
-                                    padding: '8px 16px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)',
-                                    color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
-                                    fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
-                                }}>
-                                    <EyeOff size={14} /> Hide All
+                            <div className="section-controls">
+                                <button
+                                    className="btn-sort"
+                                    onClick={() => handleSort('recent')}
+                                    style={{
+                                        background: sortBy === 'recent' ? '#e6f4ed' : 'white',
+                                        borderColor: sortBy === 'recent' ? 'var(--primary)' : 'var(--border)',
+                                        color: sortBy === 'recent' ? 'var(--primary)' : 'var(--text)'
+                                    }}
+                                >
+                                    <ArrowUpDown size={16} />
+                                    Recently Active {sortBy === 'recent' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                                 </button>
-                                <button onClick={() => handleBulkAgentAction(true)} style={{
-                                    padding: '8px 16px', background: '#ef4444', border: 'none',
-                                    color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
-                                    fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
-                                }}>
-                                    <Trash2 size={14} /> Delete All
+                                <button
+                                    className="btn-sort"
+                                    onClick={() => handleSort('session_count')}
+                                    style={{
+                                        background: sortBy === 'session_count' ? '#e6f4ed' : 'white',
+                                        borderColor: sortBy === 'session_count' ? 'var(--primary)' : 'var(--border)',
+                                        color: sortBy === 'session_count' ? 'var(--primary)' : 'var(--text)'
+                                    }}
+                                >
+                                    <ArrowUpDown size={16} />
+                                    Sessions {sortBy === 'session_count' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+                                </button>
+                                <button
+                                    className="btn-sort"
+                                    onClick={() => handleSort('name')}
+                                    style={{
+                                        background: sortBy === 'name' ? '#e6f4ed' : 'white',
+                                        borderColor: sortBy === 'name' ? 'var(--primary)' : 'var(--border)',
+                                        color: sortBy === 'name' ? 'var(--primary)' : 'var(--text)'
+                                    }}
+                                >
+                                    <ArrowUpDown size={16} />
+                                    Name {sortBy === 'name' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                                 </button>
                             </div>
                         </div>
-                    )}
 
-                    {/* Agents Grid */}
-                    <div className="agents-grid">
-                        {Array.isArray(agents) && agents.map(agent => {
-                            // lookup active session count for this agent
-                            const activeInfo = activeSessions.agents.find(a => a.agent_id === agent.agent_id);
-                            const activeCount = activeInfo ? activeInfo.active_session_count : 0;
-                            return (
-                                <div key={agent.agent_id || agent._id} className="card agent-card" onClick={() => navigate(`/admin/agent/${agent.agent_id}`)} style={{ position: 'relative', cursor: 'pointer', border: selectedAgents.has(agent.agent_id) ? '2px solid #008F4B' : (activeCount > 0 ? '1.5px solid rgba(0,200,100,0.4)' : undefined) }}>
-                                    {/* Active sessions live indicator — top-left corner */}
-                                    {activeCount > 0 && (
-                                        <div style={{
-                                            position: 'absolute', top: '10px', left: '10px',
-                                            display: 'flex', alignItems: 'center', gap: '5px',
-                                            background: 'rgba(0,180,80,0.12)',
-                                            border: '1px solid rgba(0,200,100,0.35)',
-                                            borderRadius: '20px',
-                                            padding: '2px 8px 2px 5px',
-                                            zIndex: 5
-                                        }}>
-                                            <span style={{
-                                                display: 'inline-block',
-                                                width: '7px', height: '7px',
-                                                borderRadius: '50%',
-                                                background: '#00c864',
-                                                animation: 'activePulse 1.5s ease-in-out infinite',
-                                                flexShrink: 0
-                                            }} />
-                                            <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#009a4e', lineHeight: 1 }}>
-                                                {activeCount} Active
+
+                        {/* Bulk Action Bar for Agents */}
+                        {selectedAgents.size > 0 && user?.id === 'master_root_0' && (
+                            <div style={{
+                                background: 'linear-gradient(135deg, #008F4B, #00753e)', color: 'white',
+                                padding: '12px 20px', borderRadius: '10px', marginBottom: '12px',
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                boxShadow: '0 4px 20px rgba(0,143,75,0.3)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <CheckSquare size={18} />
+                                    <span style={{ fontWeight: '600' }}>{selectedAgents.size} agent{selectedAgents.size > 1 ? 's' : ''} selected</span>
+                                    <button onClick={clearAgentSelection} style={{
+                                        background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white',
+                                        padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem'
+                                    }}>Clear</button>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button onClick={() => handleBulkAgentAction(false)} style={{
+                                        padding: '8px 16px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.4)',
+                                        color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                        fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
+                                    }}>
+                                        <EyeOff size={14} /> Hide All
+                                    </button>
+                                    <button onClick={() => handleBulkAgentAction(true)} style={{
+                                        padding: '8px 16px', background: '#ef4444', border: 'none',
+                                        color: 'white', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem',
+                                        fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px'
+                                    }}>
+                                        <Trash2 size={14} /> Delete All
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Agents Grid */}
+                        <div className="agents-grid">
+                            {Array.isArray(agents) && agents.map(agent => {
+                                // lookup active session count for this agent
+                                const activeInfo = activeSessions.agents.find(a => a.agent_id === agent.agent_id);
+                                const activeCount = activeInfo ? activeInfo.active_session_count : 0;
+                                return (
+                                    <div key={agent.agent_id || agent._id} className="card agent-card" onClick={() => navigate(`/admin/agent/${agent.agent_id}`)} style={{ position: 'relative', cursor: 'pointer', border: selectedAgents.has(agent.agent_id) ? '2px solid #008F4B' : (activeCount > 0 ? '1.5px solid rgba(0,200,100,0.4)' : undefined) }}>
+                                        {/* Active sessions live indicator — top-left corner */}
+                                        {activeCount > 0 && (
+                                            <div style={{
+                                                position: 'absolute', top: '10px', left: '10px',
+                                                display: 'flex', alignItems: 'center', gap: '5px',
+                                                background: 'rgba(0,180,80,0.12)',
+                                                border: '1px solid rgba(0,200,100,0.35)',
+                                                borderRadius: '20px',
+                                                padding: '2px 8px 2px 5px',
+                                                zIndex: 5
+                                            }}>
+                                                <span style={{
+                                                    display: 'inline-block',
+                                                    width: '7px', height: '7px',
+                                                    borderRadius: '50%',
+                                                    background: '#00c864',
+                                                    animation: 'activePulse 1.5s ease-in-out infinite',
+                                                    flexShrink: 0
+                                                }} />
+                                                <span style={{ fontSize: '0.72rem', fontWeight: '700', color: '#009a4e', lineHeight: 1 }}>
+                                                    {activeCount} Active
+                                                </span>
+                                            </div>
+                                        )}
+                                        {user?.id === 'master_root_0' && (
+                                            <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', gap: '8px', zIndex: 10 }} onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                    onClick={(e) => toggleAgentSelect(agent.agent_id, e)}
+                                                    style={{
+                                                        width: '24px', height: '24px', borderRadius: '4px', background: 'transparent', color: '#008F4B', border: 'none', cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                    }}
+                                                    title="Select Agent"
+                                                >
+                                                    {selectedAgents.has(agent.agent_id) ? <CheckSquare size={18} /> : <Square size={18} color="#94a3b8" />}
+                                                </button>
+                                                <button
+                                                    onClick={(e) => handleDeleteAgent(agent.agent_id, e, false)}
+                                                    style={{
+                                                        width: '24px', height: '24px', borderRadius: '50%', background: '#f1f5f9', color: '#64748b', border: 'none', cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                    }}
+                                                    title="Hide Agent"
+                                                >
+                                                    <EyeOff size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={(e) => handleDeleteAgent(agent.agent_id, e, true)}
+                                                    style={{
+                                                        width: '24px', height: '24px', borderRadius: '50%', background: '#fee2e2', color: '#ef4444', border: 'none', cursor: 'pointer',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                                    }}
+                                                    title="Permanently Delete & Block"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        )}
+                                        <h3 className="agent-name" style={{ paddingRight: user?.id === 'master_root_0' ? '90px' : '0', paddingTop: activeCount > 0 ? '22px' : '0' }}>{agent.name}</h3>
+                                        <div style={{ display: 'flex', gap: '10px', marginTop: '5px', flexWrap: 'wrap' }}>
+                                            <span className="badge">{agent.session_count || 0} Sessions</span>
+                                            <span className="badge" style={{ background: '#FFC805', color: '#000' }}>
+                                                {Math.floor(parseInt(agent.computed_total_duration || 0) / 60)} Mins
                                             </span>
                                         </div>
-                                    )}
-                                    {user?.id === 'master_root_0' && (
-                                        <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', gap: '8px', zIndex: 10 }} onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                                onClick={(e) => toggleAgentSelect(agent.agent_id, e)}
-                                                style={{
-                                                    width: '24px', height: '24px', borderRadius: '4px', background: 'transparent', color: '#008F4B', border: 'none', cursor: 'pointer',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                                }}
-                                                title="Select Agent"
-                                            >
-                                                {selectedAgents.has(agent.agent_id) ? <CheckSquare size={18} /> : <Square size={18} color="#94a3b8" />}
-                                            </button>
-                                            <button
-                                                onClick={(e) => handleDeleteAgent(agent.agent_id, e, false)}
-                                                style={{
-                                                    width: '24px', height: '24px', borderRadius: '50%', background: '#f1f5f9', color: '#64748b', border: 'none', cursor: 'pointer',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                                }}
-                                                title="Hide Agent"
-                                            >
-                                                <EyeOff size={14} />
-                                            </button>
-                                            <button
-                                                onClick={(e) => handleDeleteAgent(agent.agent_id, e, true)}
-                                                style={{
-                                                    width: '24px', height: '24px', borderRadius: '50%', background: '#fee2e2', color: '#ef4444', border: 'none', cursor: 'pointer',
-                                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                                                }}
-                                                title="Permanently Delete & Block"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    )}
-                                    <h3 className="agent-name" style={{ paddingRight: user?.id === 'master_root_0' ? '90px' : '0', paddingTop: activeCount > 0 ? '22px' : '0' }}>{agent.name}</h3>
-                                    <div style={{ display: 'flex', gap: '10px', marginTop: '5px', flexWrap: 'wrap' }}>
-                                        <span className="badge">{agent.session_count || 0} Sessions</span>
-                                        <span className="badge" style={{ background: '#FFC805', color: '#000' }}>
-                                            {Math.floor(parseInt(agent.computed_total_duration || 0) / 60)} Mins
-                                        </span>
+                                        <p className="text-small text-muted agent-id">ID: {agent.agent_id}</p>
+                                        {agent.computed_last_session && (
+                                            <p className="text-small" style={{ color: '#008F4B', fontWeight: '500', marginTop: '4px' }}>
+                                                Last Active: {new Date(agent.computed_last_session).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                            </p>
+                                        )}
                                     </div>
-                                    <p className="text-small text-muted agent-id">ID: {agent.agent_id}</p>
-                                    {agent.computed_last_session && (
-                                        <p className="text-small" style={{ color: '#008F4B', fontWeight: '500', marginTop: '4px' }}>
-                                            Last Active: {new Date(agent.computed_last_session).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                        </p>
-                                    )}
-                                </div>
-                            );
-                        })}
-                        {agents.length === 0 && !loading && <p className="text-center text-muted">No agents found.</p>}
-                    </div>
-
-                    {/* Pagination */}
-                    {totalPages > 1 && (
-                        <div className="pagination">
-                            <button
-                                className="pagination-btn"
-                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                disabled={currentPage === 1}
-                            >
-                                <ChevronLeft size={18} /> Prev
-                            </button>
-                            <div className="pagination-info">
-                                Page {currentPage} of {totalPages}
-                            </div>
-                            <button
-                                className="pagination-btn"
-                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                disabled={currentPage === totalPages}
-                            >
-                                Next <ChevronRight size={18} />
-                            </button>
+                                );
+                            })}
+                            {agents.length === 0 && !loading && <p className="text-center text-muted">No agents found.</p>}
                         </div>
-                    )}
-                </main>
-            </div >
-            {/* Recycle Bin Modal */}
+                    </div>
+                )}
+
+                {/* ── Pagination (Hide on Analytics Page) ── */}
+                {!isAnalyticsPage && totalPages > 1 && (
+                    <div className="pagination">
+                        <button
+                            className="btn-secondary"
+                            onClick={() => updatePage(currentPage - 1)}
+                            disabled={currentPage === 1}
+                        >
+                            <ChevronLeft size={16} /> Prev
+                        </button>
+                        <span>Page {currentPage} of {totalPages}</span>
+                        <button
+                            className="btn-secondary"
+                            onClick={() => updatePage(currentPage + 1)}
+                            disabled={currentPage === totalPages}
+                        >
+                            Next <ChevronRight size={16} />
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* ── Recycle Bin Controls ── */}
             {
                 recycleBinOpen && (() => {
                     const hiddenItems = hiddenAgents.map(a => ({ ...a, _binKey: `hidden::${a.agent_id}`, _binType: 'hidden' }));
