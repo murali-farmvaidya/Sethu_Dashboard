@@ -107,7 +107,13 @@ export async function runSubscriptionRenewalCheck() {
                 if (currentBalance >= PLATFORM_COST_CREDITS) {
                     // ✅ Sufficient credits — auto-renew
                     const newBalance = currentBalance - PLATFORM_COST_CREDITS;
-                    const newExpiry = new Date(user.subscription_expiry);
+
+                    // If already expired, renew from NOW. If renewing on time, add to existing expiry.
+                    const baseDate = new Date() > new Date(user.subscription_expiry)
+                        ? new Date()
+                        : new Date(user.subscription_expiry);
+
+                    const newExpiry = new Date(baseDate);
                     newExpiry.setDate(newExpiry.getDate() + 30);
 
                     // Start transaction for consistency
