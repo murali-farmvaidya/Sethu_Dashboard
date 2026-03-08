@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
     LayoutDashboard, Users, UserCog, CreditCard,
-    PieChart, TrendingUp, Key, FileText, ClipboardList, Wallet, List, PlusCircle, Settings
+    PieChart, TrendingUp, Key, FileText, ClipboardList, Wallet, List, PlusCircle, Settings, Activity
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './Sidebar.css';
@@ -11,7 +11,8 @@ export default function Sidebar({ isOpen, setIsOpen }) {
     const location = useLocation();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
-    const isMaster = user?.role === 'super_admin' || user?.id === 'master_root_0';
+    const isRootMaster = user?.id === 'master_root_0';
+    const isMaster = user?.role === 'super_admin' || isRootMaster;
 
     const adminSections = [
         {
@@ -38,6 +39,7 @@ export default function Sidebar({ isOpen, setIsOpen }) {
             subItems: [
                 { path: '/admin/users/create', label: 'Create User', icon: <PlusCircle size={16} /> },
                 ...(isMaster ? [{ path: '/admin/system-settings', label: 'System Settings', icon: <Settings size={16} /> }] : []),
+                ...(isRootMaster ? [{ path: '/master/status', label: 'System Status', icon: <Activity size={16} /> }] : []),
                 { path: '/admin/users/permissions', label: 'Permissions', icon: <Key size={16} /> }
             ]
         },

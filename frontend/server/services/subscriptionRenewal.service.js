@@ -9,6 +9,7 @@
  * - 3 days before expiry: sends a low-credit warning if balance < 6500
  */
 import pg from 'pg';
+import crypto from 'crypto';
 import {
     notifyAutoRenewalSuccess,
     notifyAutoRenewalFailed,
@@ -25,8 +26,12 @@ const pool = new Pool({
     ssl: process.env.POSTGRES_SSL === 'true' ? { rejectUnauthorized: false } : false
 });
 
-const getTableName = (base) =>
-    process.env.APP_ENV === 'test' ? `test_${base.toLowerCase()}` : base;
+const getTableName = (baseTableName) => {
+    if (process.env.APP_ENV === 'test') {
+        return `test_${baseTableName.toLowerCase()}`;
+    }
+    return baseTableName;
+};
 
 const PLATFORM_COST_CREDITS = 6500; // credits deducted for monthly renewal
 const LOW_CREDIT_WARNING_DAYS = 3;  // warn this many days before expiry
@@ -88,46 +93,61 @@ export async function runSubscriptionRenewalCheck() {
         }
 
         for (const user of expired.rows) {
-            const currentBalance = parseFloat(user.minutes_balance || 0);
+            try {
+                const currentBalance = parseFloat(user.minutes_balance || 0);
 
-            if (currentBalance >= PLATFORM_COST_CREDITS) {
-                // ✅ Sufficient credits — auto-renew
-                const newBalance = currentBalance - PLATFORM_COST_CREDITS;
-                const newExpiry = new Date(user.subscription_expiry);
-                newExpiry.setDate(newExpiry.getDate() + 30);
+                if (currentBalance >= PLATFORM_COST_CREDITS) {
+                    // ✅ Sufficient credits — auto-renew
+                    const newBalance = currentBalance - PLATFORM_COST_CREDITS;
+                    const newExpiry = new Date(user.subscription_expiry);
+                    newExpiry.setDate(newExpiry.getDate() + 30);
 
-                await pool.query(`
-                    UPDATE "${usersTable}"
-                    SET minutes_balance = $1, subscription_expiry = $2, updated_at = NOW()
-                    WHERE user_id = $3
-                `, [newBalance, newExpiry, user.user_id]);
+                    // Start transaction for consistency
+                    await pool.query('BEGIN');
+                    try {
+                        await pool.query(`
+                            UPDATE "${usersTable}"
+                            SET minutes_balance = $1, subscription_expiry = $2, updated_at = NOW()
+                            WHERE user_id = $3
+                        `, [newBalance, newExpiry, user.user_id]);
 
-                // Record as a payment transaction for audit trail
-                await pool.query(`
-                    INSERT INTO "${paymentsTable}" (id, user_id, amount, currency, status, order_id, type, minutes_added, created_at, updated_at)
-                    VALUES (gen_random_uuid()::text, $1, 650000, 'INR', 'captured', $2, 'auto_renewal', $3, NOW(), NOW())
-                `, [user.user_id, `auto_renew_${Date.now()}`, -PLATFORM_COST_CREDITS]);
+                        // Record as a payment transaction for audit trail
+                        const transactionId = crypto.randomUUID();
+                        await pool.query(`
+                            INSERT INTO "${paymentsTable}" (id, user_id, amount, currency, status, order_id, type, minutes_added, created_at, updated_at)
+                            VALUES ($1, $2, 650000, 'INR', 'captured', $3, 'auto_renewal', $4, NOW(), NOW())
+                        `, [transactionId, user.user_id, `auto_renew_${Date.now()}`, -PLATFORM_COST_CREDITS]);
 
-                await notifyAutoRenewalSuccess(
-                    user.user_id, user.email,
-                    PLATFORM_COST_CREDITS,
-                    newBalance,
-                    newExpiry
-                );
-                console.log(`[AutoRenewal] ✅ Auto-renewed ${user.email}, balance: ${currentBalance} → ${newBalance}`);
-            } else {
-                // ❌ Insufficient credits — notify & deduct whatever is available
-                await notifyAutoRenewalFailed(
-                    user.user_id, user.email,
-                    currentBalance,
-                    PLATFORM_COST_CREDITS
-                );
-                // Set last_low_credit_alert so we don't flood notifications
-                await pool.query(
-                    `UPDATE "${usersTable}" SET last_low_credit_alert = NOW() WHERE user_id = $1`,
-                    [user.user_id]
-                );
-                console.log(`[AutoRenewal] ❌ Renewal failed for ${user.email}, balance ${currentBalance} < ${PLATFORM_COST_CREDITS}`);
+                        await pool.query('COMMIT');
+
+                        await notifyAutoRenewalSuccess(
+                            user.user_id, user.email,
+                            PLATFORM_COST_CREDITS,
+                            newBalance,
+                            newExpiry
+                        );
+                        console.log(`[AutoRenewal] ✅ Auto-renewed ${user.email}, balance: ${currentBalance} → ${newBalance}`);
+                    } catch (innerErr) {
+                        await pool.query('ROLLBACK');
+                        throw innerErr;
+                    }
+                } else {
+                    // ❌ Insufficient credits — notify & deduct whatever is available
+                    await notifyAutoRenewalFailed(
+                        user.user_id, user.email,
+                        currentBalance,
+                        PLATFORM_COST_CREDITS
+                    );
+                    // Set last_low_credit_alert so we don't flood notifications
+                    await pool.query(
+                        `UPDATE "${usersTable}" SET last_low_credit_alert = NOW() WHERE user_id = $1`,
+                        [user.user_id]
+                    );
+                    console.log(`[AutoRenewal] ❌ Renewal failed for ${user.email}, balance ${currentBalance} < ${PLATFORM_COST_CREDITS}`);
+                }
+            } catch (userErr) {
+                console.error(`[AutoRenewal] Error processing user ${user.email}:`, userErr.message);
+                // Continue to next user
             }
         }
 
