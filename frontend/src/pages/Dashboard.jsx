@@ -58,6 +58,9 @@ export default function Dashboard() {
     const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page')) || 1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalAgents, setTotalAgents] = useState(0);
+    const isAdmin = user?.role === 'super_admin';
+    const isMaster = user?.id === 'master_root_0' || user?.isMaster;
+    const canSeeHidden = isAdmin || isMaster;
     const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || 'recent');
     const [sortOrder, setSortOrder] = useState(searchParams.get('sortOrder') || 'desc');
 
@@ -295,6 +298,10 @@ export default function Dashboard() {
         fetchAgents();
         fetchActiveSessions();
 
+        if (canSeeHidden) {
+            fetchRecycleBin();
+        }
+
         // Active sessions: fast 2-second poll for near real-time updates
         const activeInterval = setInterval(() => {
             fetchActiveSessions();
@@ -304,13 +311,14 @@ export default function Dashboard() {
         const mainInterval = setInterval(() => {
             fetchStats();
             fetchAgents();
+            if (canSeeHidden) fetchRecycleBin();
         }, 5000);
 
         return () => {
             clearInterval(activeInterval);
             clearInterval(mainInterval);
         };
-    }, [fetchStats, fetchAgents, fetchActiveSessions]); // Now stable
+    }, [fetchStats, fetchAgents, fetchActiveSessions, canSeeHidden, fetchRecycleBin]); // Now stable
 
     // Debounce search
     useEffect(() => {
@@ -378,6 +386,17 @@ export default function Dashboard() {
                                 <span style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text)', marginTop: '8px' }}>{Math.floor((stats.totalDuration || 0) / 60).toLocaleString()} min</span>
                                 <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-muted)', marginTop: '8px' }}>Since Jan 1, 2026</span>
                             </div>
+                            {canSeeHidden && (
+                                <div style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+                                    <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hidden & Blocked</span>
+                                    <span style={{ fontSize: '28px', fontWeight: '800', color: '#ef4444', marginTop: '8px' }}>
+                                        {hiddenAgents.length + excludedAgents.length}
+                                    </span>
+                                    <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                        {hiddenAgents.length} hidden, {excludedAgents.length} blocked
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </>
                 )}
@@ -540,6 +559,11 @@ export default function Dashboard() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: '300px' }}>
                                 <h2 style={{ fontSize: '1.25rem', fontWeight: '700', margin: 0, whiteSpace: 'nowrap' }}>
                                     {totalAgents} agents
+                                    {canSeeHidden && (hiddenAgents.length > 0 || excludedAgents.length > 0) && (
+                                        <span style={{ fontSize: '0.9rem', color: '#94a3b8', fontWeight: '500', marginLeft: '10px' }}>
+                                            (+{hiddenAgents.length + excludedAgents.length} in recycling)
+                                        </span>
+                                    )}
                                 </h2>
                                 <div className="search-container" style={{ margin: 0, flex: 1, maxWidth: '400px' }}>
                                     <Search size={20} className="search-icon" />
@@ -596,6 +620,23 @@ export default function Dashboard() {
                                     <ArrowUpDown size={16} />
                                     Name {sortBy === 'name' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
                                 </button>
+                                {user?.id === 'master_root_0' && (
+                                    <button
+                                        className="btn-sort"
+                                        onClick={() => setRecycleBinOpen(true)}
+                                        style={{
+                                            background: '#f8fafc',
+                                            borderColor: '#e2e8f0',
+                                            color: '#64748b',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        <RotateCcw size={16} />
+                                        Recycle Bin
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -791,7 +832,7 @@ export default function Dashboard() {
                                 <div style={{ marginBottom: '24px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                                         <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <EyeOff size={16} /> Hidden Agents (Soft Deleted)
+                                            <EyeOff size={16} /> Hidden Agents (Soft Deleted) {hiddenItems.length > 0 && `(${hiddenItems.length})`}
                                         </h3>
                                         {hiddenItems.length > 0 && (
                                             <button onClick={() => toggleBinSelectAll(hiddenItems)} style={{ background: 'none', border: '1px solid #e2e8f0', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', color: '#64748b' }}>
@@ -824,7 +865,7 @@ export default function Dashboard() {
                                 <div>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                                         <h3 style={{ fontSize: '1rem', fontWeight: '600', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <ShieldAlert size={16} /> Permanently Blocked (Sync Excluded)
+                                            <ShieldAlert size={16} /> Permanently Blocked (Sync Excluded) {excludedItems.length > 0 && `(${excludedItems.length})`}
                                         </h3>
                                         {excludedItems.length > 0 && (
                                             <button onClick={() => toggleBinSelectAll(excludedItems)} style={{ background: 'none', border: '1px solid #e2e8f0', padding: '3px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', color: '#64748b' }}>

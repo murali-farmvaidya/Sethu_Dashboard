@@ -695,6 +695,7 @@ async function main() {
                 excluded_by TEXT NOT NULL,
                 excluded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 reason TEXT,
+                is_purged BOOLEAN DEFAULT FALSE,
                 UNIQUE(item_type, item_id)
             );
         `);

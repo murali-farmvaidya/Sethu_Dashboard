@@ -335,6 +335,7 @@ const initDatabase = async () => {
             // Ensure item_name column exists for existing tables
             try {
                 await pool.query(`ALTER TABLE "${getTableName('Excluded_Items')}" ADD COLUMN IF NOT EXISTS item_name TEXT`);
+                await pool.query(`ALTER TABLE "${getTableName('Excluded_Items')}" ADD COLUMN IF NOT EXISTS is_purged BOOLEAN DEFAULT FALSE`);
             } catch (colErr) {
                 // Ignore if exists
             }
@@ -3002,7 +3003,8 @@ app.get('/api/data-admin/excluded', async (req, res) => {
         }
 
         const excludedItems = await pool.query(`
-SELECT * FROM "${getTableName('Excluded_Items')}"
+            SELECT * FROM "${getTableName('Excluded_Items')}"
+            WHERE is_purged = false OR is_purged IS NULL
             ORDER BY excluded_at DESC
         `);
 
@@ -3131,13 +3133,18 @@ app.delete('/api/data-admin/excluded-permanent/:itemType/:itemId', async (req, r
         }
 
         // ✅ KEEP in Excluded_Items so the sync script NEVER re-creates it!
-        // (do NOT delete from Excluded_Items — that's what was broken before)
+        // But mark as purged so it DISAPPEARS from the Recycle Bin UI.
+        await pool.query(`
+            UPDATE "${getTableName('Excluded_Items')}"
+            SET is_purged = true, reason = 'PERMANENTLY_PURGED'
+            WHERE item_type = $1 AND item_id = $2
+        `, [itemType, itemId]);
 
-        console.log(`🗑️ Permanently removed ${itemType} "${itemName}" data from recycle bin by ${decoded.userId}`);
+        console.log(`🗑️ Permanently removed ${itemType} "${itemName}" data and marked as purged from recycle bin by ${decoded.userId}`);
 
         res.json({
             success: true,
-            message: `${itemType} "${itemName}" permanently deleted. It will NOT be re-synced.`
+            message: `${itemType} "${itemName}" permanently deleted and hidden from recycle bin.`
         });
 
     } catch (err) {
