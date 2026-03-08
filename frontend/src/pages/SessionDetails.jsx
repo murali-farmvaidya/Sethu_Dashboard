@@ -59,11 +59,11 @@ export default function SessionDetails() {
 
     const fetchSiblings = async () => {
         try {
-            const sessRes = await api.get(`/api/session/${sessionId}`);
+            const sessRes = await api.get(`session/${sessionId}`);
             const agentId = sessRes.data?.agent_id;
             if (!agentId) return;
             const params = new URLSearchParams({ agent_id: agentId, page: 1, limit: 200, sortBy: 'started_at', sortOrder: 'desc' });
-            const res = await api.get(`/api/sessions?${params}`);
+            const res = await api.get(`sessions?${params}`);
             if (res.data?.data) {
                 const ids = res.data.data.map(s => s.session_id);
                 setSiblingIds(ids);
@@ -76,7 +76,7 @@ export default function SessionDetails() {
         if (showLoading) setLoading(true);
         try {
             try {
-                const sessRes = await api.get(`/api/session/${sessionId}`);
+                const sessRes = await api.get(`session/${sessionId}`);
                 setSession(prev => {
                     if (prev && prev.recordingUrl === sessRes.data.recordingUrl) {
                         return { ...sessRes.data, recordingUrl: prev.recordingUrl };
@@ -86,7 +86,7 @@ export default function SessionDetails() {
             } catch (sessErr) { console.error('Error fetching session:', sessErr); }
 
             try {
-                const convRes = await api.get(`/api/conversation/${sessionId}`);
+                const convRes = await api.get(`conversation/${sessionId}`);
                 setConversation(convRes.data);
                 setReviewStatus(convRes.data?.review_status || 'pending');
             } catch {
@@ -102,7 +102,7 @@ export default function SessionDetails() {
     const handleStatusChange = async (newStatus) => {
         setUpdatingStatus(true);
         try {
-            await api.patch(`/api/user/conversations/${sessionId}/review-status`, { status: newStatus });
+            await api.patch(`user/conversations/${sessionId}/review-status`, { status: newStatus });
             setReviewStatus(newStatus);
             toast.success(`Status updated`);
         } catch { toast.error('Failed to update status'); }
@@ -193,7 +193,7 @@ export default function SessionDetails() {
     const saveTurn = async (index) => {
         setSavingTurn(true);
         try {
-            await api.patch(`/api/master/conversations/${sessionId}/turn/${index}`, editTurnData);
+            await api.patch(`master/conversations/${sessionId}/turn/${index}`, editTurnData);
             toast.success('Turn updated');
             setEditingTurnIndex(null);
             fetchData(false);
@@ -207,7 +207,7 @@ export default function SessionDetails() {
     const saveSummary = async () => {
         setSavingSummary(true);
         try {
-            await api.patch(`/api/data-admin/sessions/${sessionId}/summary`, { summary: editSummaryText });
+            await api.patch(`data-admin/sessions/${sessionId}/summary`, { summary: editSummaryText });
             toast.success('Summary updated');
             setEditSummaryMode(false);
             fetchData(false);
@@ -221,7 +221,7 @@ export default function SessionDetails() {
     const saveSessionMeta = async () => {
         setSavingSession(true);
         try {
-            await api.patch(`/api/master/sessions/${sessionId}`, editSessionData);
+            await api.patch(`master/sessions/${sessionId}`, editSessionData);
             toast.success('Session updated');
             setEditSessionMode(false);
             fetchData(false);

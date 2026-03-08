@@ -19,7 +19,7 @@ export default function SystemStatus() {
 
         const fetchStatus = async () => {
             try {
-                const res = await api.get('/api/system/status');
+                const res = await api.get('system/status');
                 setStatus(res.data);
             } catch (err) {
                 setError(err.response?.data?.error || err.message);
@@ -45,7 +45,7 @@ export default function SystemStatus() {
 
     return (
         <>
-                        <div className="dashboard-layout" style={{ background: '#f5f7fa', minHeight: '100vh', padding: '2rem' }}>
+            <div className="dashboard-layout" style={{ background: '#f5f7fa', minHeight: '100vh', padding: '2rem' }}>
                 <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem' }}>
                         <button onClick={() => navigate('/admin')} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: '1rem', color: '#666' }}>

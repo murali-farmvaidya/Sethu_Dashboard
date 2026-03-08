@@ -115,7 +115,7 @@ export default function AgentDetails() {
     // Fetch Telephony Config
     const fetchTelephonyConfig = useCallback(async () => {
         try {
-            const res = await api.get(`/api/telephony/config/${agentId}`);
+            const res = await api.get(`telephony/config/${agentId}`);
             if (res.data && res.data.exophone) {
                 setTelephonyConfig(res.data);
                 setConfigForm({ exophone: res.data.exophone, app_id: res.data.app_id });
@@ -133,7 +133,7 @@ export default function AgentDetails() {
 
     const handleSaveConfig = async () => {
         try {
-            await api.post('/api/telephony/config', {
+            await api.post('telephony/config', {
                 agentId,
                 exophone: configForm.exophone,
                 appId: configForm.app_id
@@ -177,7 +177,7 @@ export default function AgentDetails() {
                 return;
             }
 
-            const res = await api.post('/api/telephony/call', {
+            const res = await api.post('telephony/call', {
                 agentId,
                 receiverNumber: numbers, // Send as Array
                 receiverName: [] // Name field removed from UI
@@ -256,7 +256,7 @@ export default function AgentDetails() {
                 search: searchTerm,
                 show_hidden: showHiddenSessions
             });
-            const res = await api.get(`/api/sessions?${params}`);
+            const res = await api.get(`sessions?${params}`);
 
             // Handle response safely
             if (res.data && res.data.data) {
@@ -295,7 +295,7 @@ export default function AgentDetails() {
     // Fetch agent details for creation date
     const fetchAgentDetails = useCallback(async () => {
         try {
-            const res = await api.get(`/api/agents/${agentId}`);
+            const res = await api.get(`agents/${agentId}`);
             if (res.data) {
                 const agent = res.data;
                 if (agent.created_at) {
@@ -388,7 +388,7 @@ export default function AgentDetails() {
     const handleStatusChange = async (sessionId, newStatus) => {
         setUpdatingStatus(prev => ({ ...prev, [sessionId]: true }));
         try {
-            await api.patch(`/api/user/conversations/${sessionId}/review-status`, { status: newStatus });
+            await api.patch(`user/conversations/${sessionId}/review-status`, { status: newStatus });
             // Refresh sessions to show updated status
             fetchSessions();
         } catch (err) {
@@ -429,7 +429,7 @@ export default function AgentDetails() {
     // Download session data
     const downloadSession = async (session, format) => {
         try {
-            const convRes = await api.get(`/api/conversation/${session.session_id}`);
+            const convRes = await api.get(`conversation/${session.session_id}`);
             const conversation = convRes.data;
 
             const data = {
@@ -492,7 +492,7 @@ export default function AgentDetails() {
     const handleGenerateSummary = async (sessionId) => {
         setGeneratingSummary(prev => ({ ...prev, [sessionId]: true }));
         try {
-            const res = await api.post(`/api/conversation/${sessionId}/generate-summary`);
+            const res = await api.post(`conversation/${sessionId}/generate-summary`);
             if (res.data?.summary) {
                 // Update sessions state with the new summary
                 setSessions(prev => prev.map(s =>
@@ -546,7 +546,7 @@ export default function AgentDetails() {
     const handleRestoreSession = async (sessionId, e) => {
         if (e) e.stopPropagation();
         try {
-            await api.post(`/api/sessions/${sessionId}/restore`);
+            await api.post(`sessions/${sessionId}/restore`);
             fetchSessions(); // Refresh
         } catch (err) {
             toast.error('Restore failed');
@@ -555,12 +555,12 @@ export default function AgentDetails() {
 
     const fetchRecycleBin = async () => {
         try {
-            const res = await api.get('/api/data-admin/excluded');
+            const res = await api.get('data-admin/excluded');
             setExcludedSessions(res.data.excluded.filter(e => e.item_type === 'session'));
 
             // Also fetch hidden sessions for this agent
             const params = new URLSearchParams({ agent_id: agentId, page: 1, limit: 100, show_hidden: true });
-            const hiddenRes = await api.get(`/api/sessions?${params}`);
+            const hiddenRes = await api.get(`sessions?${params}`);
             if (hiddenRes.data?.data) {
                 setHiddenSessionsList(hiddenRes.data.data.filter(s => s.is_hidden));
             }
@@ -586,7 +586,7 @@ export default function AgentDetails() {
 
     const handleRestoreExcluded = async (id) => {
         try {
-            await api.delete(`/api/data-admin/excluded/session/${id}`);
+            await api.delete(`data-admin/excluded/session/${id}`);
             toast.success('Session restored from blocklist. It will be re-fetched in the next sync cycle.');
             fetchRecycleBin();
         } catch (e) {
@@ -635,11 +635,11 @@ export default function AgentDetails() {
                 try {
                     const [type, id] = key.split('::');
                     if (action === 'restore') {
-                        await api.post(`/api/sessions/${id}/restore`);
+                        await api.post(`sessions/${id}/restore`);
                     } else if (action === 'resync') {
-                        await api.delete(`/api/data-admin/excluded/session/${id}`);
+                        await api.delete(`data-admin/excluded/session/${id}`);
                     } else {
-                        await api.delete(`/api/data-admin/excluded-permanent/session/${id}`);
+                        await api.delete(`data-admin/excluded-permanent/session/${id}`);
                     }
                     successCount++;
                 } catch (err) {
