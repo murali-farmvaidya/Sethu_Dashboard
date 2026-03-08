@@ -54,8 +54,10 @@ const AdminTools = () => {
     const fetchUserAnalytics = async () => {
         if (!analyticsUser) { toast.error('Please select a user'); return; }
         try {
+            console.log('Fetching analytics for user:', analyticsUser);
             setAnalyticsLoading(true);
             const res = await paymentAPI.getTransactionHistory('all', 1, 500, '', '', analyticsUser);
+            console.log('Analytics Response:', res.data);
             if (res.data?.success) {
                 const rows = res.data.data || [];
                 const localStart = new Date(analyticsStart + 'T00:00:00');
@@ -150,9 +152,9 @@ const AdminTools = () => {
                                 <select value={adjTarget} onChange={e => setAdjTarget(e.target.value)}
                                     style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.875rem', color: 'var(--text)', background: 'white', height: '44px', boxSizing: 'border-box', outline: 'none' }}>
                                     <option value={authUser?.id}>My Account (Self)</option>
-                                    {users.filter(u => u.user_id !== authUser?.id).map(u => (
+                                    {users.filter(u => u.user_id !== authUser?.id && (u.role === 'admin' || u.role === 'super_admin')).map(u => (
                                         <option key={u.user_id} value={u.user_id}>
-                                            {u.name || u.email} — {parseFloat(u.minutes_balance || 0).toFixed(0)} credits
+                                            {u.name || u.email} ({u.role}) — {parseFloat(u.minutes_balance || 0).toFixed(0)} credits
                                         </option>
                                     ))}
                                 </select>
@@ -258,8 +260,8 @@ const AdminTools = () => {
                                 <select value={analyticsUser} onChange={e => { setAnalyticsUser(e.target.value); setAnalyticsData(null); }}
                                     style={{ width: '100%', padding: '10px 12px', borderRadius: '10px', border: '1.5px solid var(--border)', fontSize: '0.875rem', color: 'var(--text)', background: 'white', height: '44px', boxSizing: 'border-box', outline: 'none' }}>
                                     <option value="">— Choose a user —</option>
-                                    {users.map(u => (
-                                        <option key={u.user_id} value={u.user_id}>{u.name || u.email}</option>
+                                    {users.filter(u => u.role === 'admin' || u.role === 'super_admin').map(u => (
+                                        <option key={u.user_id} value={u.user_id}>{u.name || u.email} ({u.role})</option>
                                     ))}
                                 </select>
                             </div>

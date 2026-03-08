@@ -20,8 +20,8 @@ export default function ManagePermissions() {
         try {
             setLoading(true);
             const [usersRes, agentsRes] = await Promise.all([
-                api.get('/api/users?limit=1000'),
-                api.get('/api/agents?limit=1000')
+                api.get('users?limit=1000'),
+                api.get('agents?limit=1000')
             ]);
 
             const allUsers = usersRes.data.users || [];
@@ -63,7 +63,7 @@ export default function ManagePermissions() {
         setSaving(prev => ({ ...prev, [key]: true }));
 
         try {
-            await api.post(`/api/admin/users/${userId}/agents/${agentId}/mark-permission`, {
+            await api.post(`admin/users/${userId}/agents/${agentId}/mark-permission`, {
                 canMark: !currentValue
             });
 

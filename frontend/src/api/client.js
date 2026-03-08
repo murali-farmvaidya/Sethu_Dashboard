@@ -1,10 +1,11 @@
 import axios from 'axios';
 
 // Create axios instance with base URL from environment variable
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const BASE_URL = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 
 const apiClient = axios.create({
-    baseURL: API_URL
+    baseURL: BASE_URL
 });
 
 // Add token to requests

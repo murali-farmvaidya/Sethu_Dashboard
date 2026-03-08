@@ -1,10 +1,11 @@
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const BASE_URL = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 
 // Create axios instance with default config
 const api = axios.create({
-    baseURL: API_URL,
+    baseURL: BASE_URL,
     headers: {
         'Content-Type': 'application/json'
     }
@@ -43,94 +44,94 @@ api.interceptors.response.use(
 
 // Admin APIs (Mapped to available server endpoints)
 export const adminAPI = {
-    getAllAgents: (params) => api.get('/api/agents', { params }),
-    getStats: () => api.get('/api/stats'),
-    getActiveSessions: () => api.get('/api/active-sessions'),
-    deleteAgent: (agentId, permanent) => api.delete(`/api/agents/${agentId}`, { params: { permanent } }),
-    deleteSession: (sessionId, permanent) => api.delete(`/api/sessions/${sessionId}`, { params: { permanent } }),
-    restoreAgent: (agentId) => api.post(`/api/agents/${agentId}/restore`),
+    getAllAgents: (params) => api.get('agents', { params }),
+    getStats: () => api.get('stats'),
+    getActiveSessions: () => api.get('active-sessions'),
+    deleteAgent: (agentId, permanent) => api.delete(`agents/${agentId}`, { params: { permanent } }),
+    deleteSession: (sessionId, permanent) => api.delete(`sessions/${sessionId}`, { params: { permanent } }),
+    restoreAgent: (agentId) => api.post(`agents/${agentId}/restore`),
 
     // User Management
-    getUsers: (params) => api.get('/api/users', { params }),
-    getCreators: () => api.get('/api/users/creators'),
-    createUser: (data) => api.post('/api/users', data),
-    updateUser: (userId, data) => api.put(`/api/users/${userId}`, data),
+    getUsers: (params) => api.get('users', { params }),
+    getCreators: () => api.get('users/creators'),
+    createUser: (data) => api.post('users', data),
+    updateUser: (userId, data) => api.put(`users/${userId}`, data),
 
     // Actual actions calling the server
-    toggleUserActive: (userId) => api.patch(`/api/users/${userId}/active`),
-    deleteUser: (userId) => api.delete(`/api/users/${userId}`),
-    sendPasswordReset: (userId) => api.post(`/api/users/${userId}/reset-password`),
+    toggleUserActive: (userId) => api.patch(`users/${userId}/active`),
+    deleteUser: (userId) => api.delete(`users/${userId}`),
+    sendPasswordReset: (userId) => api.post(`users/${userId}/reset-password`),
 
     // Agent Assignment
-    getUserAgents: (userId) => api.get(`/api/users/${userId}/agents`), // Note: Need to implement this in server if needed, but currently dashboard uses mockUsers
-    assignAgent: (userId, data) => api.post(`/api/users/${userId}/agents`, data),
-    updateAgents: (userId, agents) => api.put(`/api/users/${userId}/agents`, { agents }),
+    getUserAgents: (userId) => api.get(`users/${userId}/agents`), // Note: Need to implement this in server if needed, but currently dashboard uses mockUsers
+    assignAgent: (userId, data) => api.post(`users/${userId}/agents`, data),
+    updateAgents: (userId, agents) => api.put(`users/${userId}/agents`, { agents }),
 };
 
 // User APIs
 export const userAPI = {
     // Dashboard - mock or reuse agents
-    getDashboard: (params) => api.get('/api/user/dashboard', { params }), // Approx
-    getAgentDetails: (agentId) => api.get(`/api/sessions`, { params: { agent_id: agentId, limit: 1 } }), // Hack to get stats from sessions endpoint meta
+    getDashboard: (params) => api.get('user/dashboard', { params }), // Approx
+    getAgentDetails: (agentId) => api.get(`sessions`, { params: { agent_id: agentId, limit: 1 } }), // Hack to get stats from sessions endpoint meta
 
-    getAgentSessions: (agentId, params) => api.get('/api/sessions', { params: { ...params, agent_id: agentId } }),
-    getSessionDetails: (sessionId) => api.get(`/api/session/${sessionId}`),
+    getAgentSessions: (agentId, params) => api.get('sessions', { params: { ...params, agent_id: agentId } }),
+    getSessionDetails: (sessionId) => api.get(`session/${sessionId}`),
 
-    getSessionConversations: (sessionId, params) => api.get(`/api/conversation/${sessionId}`), // Takes ID in path
+    getSessionConversations: (sessionId, params) => api.get(`conversation/${sessionId}`), // Takes ID in path
     getConversationDetails: (conversationId) => Promise.resolve({ data: {} }) // Not implemented in server/index.js explicitly as ID lookup?
 };
 
 // Auth APIs
 export const authAPI = {
     // Matches server/index.js: app.post('/api/login', { username, password })
-    login: (username, password) => api.post('/api/login', { username, password }),
+    login: (username, password) => api.post('login', { username, password }),
     logout: () => {
         localStorage.removeItem('token');
         return Promise.resolve();
     },
-    getProfile: () => api.get('/api/me'),
-    changePassword: (data) => api.post('/api/change-password', data),
-    forgotPassword: (email) => api.post('/api/forgot-password', { email }),
-    resetPasswordOtp: (data) => api.post('/api/reset-password-otp', data),
-    resetPasswordWithToken: (token, newPassword) => api.post('/api/reset-password-token', { token, newPassword })
+    getProfile: () => api.get('me'),
+    changePassword: (data) => api.post('change-password', data),
+    forgotPassword: (email) => api.post('forgot-password', { email }),
+    resetPasswordOtp: (data) => api.post('reset-password-otp', data),
+    resetPasswordWithToken: (token, newPassword) => api.post('reset-password-token', { token, newPassword })
 };
 
 export const campaignAPI = {
-    getAllCampaigns: (agentId) => api.get(`/api/campaigns${agentId ? `?agentId=${agentId}` : ''}`),
-    getCampaignCallDetails: (campaignId) => api.get(`/api/campaigns/${campaignId}/calls`),
-    createCampaign: (formData) => api.post('/api/campaigns', formData, {
+    getAllCampaigns: (agentId) => api.get(`campaigns${agentId ? `?agentId=${agentId}` : ''}`),
+    getCampaignCallDetails: (campaignId) => api.get(`campaigns/${campaignId}/calls`),
+    createCampaign: (formData) => api.post('campaigns', formData, {
         headers: {
             'Content-Type': 'multipart/form-data',
         },
     }),
-    deleteCampaign: (campaignId) => api.delete(`/api/campaigns/${campaignId}`),
-    stopCampaign: (campaignId) => api.post(`/api/campaigns/${campaignId}/stop`),
-    resumeCampaign: (campaignId) => api.post(`/api/campaigns/${campaignId}/resume`),
+    deleteCampaign: (campaignId) => api.delete(`campaigns/${campaignId}`),
+    stopCampaign: (campaignId) => api.post(`campaigns/${campaignId}/stop`),
+    resumeCampaign: (campaignId) => api.post(`campaigns/${campaignId}/resume`),
 };
 
 export const paymentAPI = {
-    createSubscription: () => api.post('/api/payment/subscription/create'),
-    createRecharge: (amount) => api.post('/api/payment/minutes/create', { amount }),
-    verifyPayment: (data) => api.post('/api/payment/verify', data),
-    getBalances: () => api.get('/api/payment/balances'),
+    createSubscription: () => api.post('payment/subscription/create'),
+    createRecharge: (amount) => api.post('payment/minutes/create', { amount }),
+    verifyPayment: (data) => api.post('payment/verify', data),
+    getBalances: () => api.get('payment/balances'),
     getTransactionHistory: (filter = 'all', page = 1, limit = 50, direction = '', search = '', targetUserId = '') =>
-        api.get('/api/payment/history', { params: { filter, page, limit, ...(direction && { direction }), ...(search && { search }), ...(targetUserId && { targetUserId }) } }),
-    adjustCredits: (amount, targetUserId) => api.post('/api/payment/adjust-credits', { amount, targetUserId }),
-    getHeatmap: (userId) => api.get('/api/payment/heatmap', { params: userId ? { userId } : {} }),
+        api.get('payment/history', { params: { filter, page, limit, ...(direction && { direction }), ...(search && { search }), ...(targetUserId && { targetUserId }) } }),
+    adjustCredits: (amount, targetUserId) => api.post('payment/adjust-credits', { amount, targetUserId }),
+    getHeatmap: (userId) => api.get('payment/heatmap', { params: userId ? { userId } : {} }),
 };
 
 
 // Settings APIs
 export const settingsAPI = {
-    getSettings: () => api.get('/api/settings'),
-    updateSettings: (settings) => api.put('/api/settings', { settings }),
-    getThrottleSettings: () => api.get('/api/settings/throttle'),
+    getSettings: () => api.get('settings'),
+    updateSettings: (settings) => api.put('settings', { settings }),
+    getThrottleSettings: () => api.get('settings/throttle'),
 };
 
 export const notificationsAPI = {
-    getNotifications: () => api.get('/api/notifications'),
-    markAsRead: (id) => api.patch(`/api/notifications/${id}/read`),
-    markAllAsRead: () => api.patch('/api/notifications/read-all'),
+    getNotifications: () => api.get('notifications'),
+    markAsRead: (id) => api.patch(`notifications/${id}/read`),
+    markAllAsRead: () => api.patch('notifications/read-all'),
 };
 
 export default api;
