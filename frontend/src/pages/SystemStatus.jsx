@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import api from '../services/api'; // uses default export or adminAPI? adminAPI doesn't have system status. use raw api.
 import { ArrowLeft, Activity, Server, Database, Cpu, Clock, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import Header from '../components/Header';
 import { useAuth } from '../context/AuthContext';
 
 export default function SystemStatus() {
@@ -46,8 +45,7 @@ export default function SystemStatus() {
 
     return (
         <>
-            <Header />
-            <div className="dashboard-layout" style={{ background: '#f5f7fa', minHeight: '100vh', padding: '2rem' }}>
+                        <div className="dashboard-layout" style={{ background: '#f5f7fa', minHeight: '100vh', padding: '2rem' }}>
                 <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem' }}>
                         <button onClick={() => navigate('/admin')} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: '1rem', color: '#666' }}>

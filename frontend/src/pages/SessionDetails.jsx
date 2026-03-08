@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import api from '../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, User, Bot, Download, Copy, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Tag, Edit2, Save, X, AlertCircle } from 'lucide-react';
-import Header from '../components/Header';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 
@@ -33,6 +32,7 @@ export default function SessionDetails() {
     const [editSummaryMode, setEditSummaryMode] = useState(false);
     const [editSummaryText, setEditSummaryText] = useState('');
     const [savingSummary, setSavingSummary] = useState(false);
+    const [activeTab, setActiveTab] = useState('conversation');
     const [editSessionMode, setEditSessionMode] = useState(false);
     const [editSessionData, setEditSessionData] = useState({});
     const [savingSession, setSavingSession] = useState(false);
@@ -237,286 +237,375 @@ export default function SessionDetails() {
     const statusStyle = getStatusStyle(reviewStatus);
 
     return (
-        <>
-            <Header />
-            <div className="dashboard-layout">
-                {/* Left Sidebar - Session Info */}
-                <aside className="dashboard-sidebar">
-                    {/* Mobile Toggle Header */}
-                    <div className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-                        <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)' }}>Session Details</h3>
-                        {isSidebarOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', height: 'calc(100vh - 80px)', padding: '0 1.5rem' }}>
+            {/* Compact Header */}
+            <div style={{
+                background: 'white',
+                padding: '0.6rem 1rem',
+                borderRadius: '16px',
+                border: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.02)',
+                flexWrap: 'wrap',
+                gap: '0.5rem'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <button
+                        onClick={() => navigate(-1)}
+                        style={{
+                            background: '#f1f5f9',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#64748b',
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '10px',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <ArrowLeft size={18} />
+                    </button>
+                    <div>
+                        <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text)', margin: 0 }}>Session {sessionId?.slice(-6)}</h2>
+                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontFamily: 'monospace' }}>Full ID: {sessionId}</span>
                     </div>
+                </div>
 
-                    <div className={`sidebar-content ${isSidebarOpen ? 'open' : ''}`}>
-                        <div className="session-info-sidebar" style={{ flex: 1, overflowY: 'auto' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                                <h3 className="desktop-header" style={{ color: 'var(--primary)', fontSize: '1.1rem' }}>Session Details</h3>
-                                {isMaster && (
-                                    <button
-                                        onClick={() => {
-                                            if (!editSessionMode) {
-                                                setEditSessionData({
-                                                    agent_name: session?.agent_name || '',
-                                                    started_at: session?.started_at || '',
-                                                    ended_at: session?.ended_at || '',
-                                                    duration_seconds: session?.duration_seconds || 0,
-                                                    status: session?.status || ''
-                                                });
-                                            }
-                                            setEditSessionMode(!editSessionMode);
-                                        }}
-                                        style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: editSessionMode ? '#fef2f2' : 'white', color: editSessionMode ? '#dc2626' : 'var(--text-muted)', cursor: 'pointer' }}
-                                    >
-                                        {editSessionMode ? <><X size={12} /> Cancel</> : <><Edit2 size={12} /> Edit</>}
-                                    </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flex: 1, justifyContent: 'flex-end', minWidth: '300px' }}>
+                    {/* Audio Player */}
+                    {session?.recordingUrl && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f0fdf4', padding: '3px 10px', borderRadius: '10px', border: '1px solid #bbf7d0', flex: 1, maxWidth: '450px' }}>
+                            <audio controls preload="auto" style={{ height: '26px', flex: 1 }} src={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}>
+                                Your browser does not support the audio element.
+                            </audio>
+                        </div>
+                    )}
+
+                    {/* Sibling Nav */}
+                    {siblingIds.length > 1 && (
+                        <div style={{ display: 'flex', alignItems: 'center', background: '#f8fafc', borderRadius: '10px', padding: '3px', border: '1px solid #e2e8f0' }}>
+                            <button onClick={() => navigateToSession(-1)} disabled={currentIndex <= 0} style={{ padding: '4px', borderRadius: '6px', border: 'none', background: currentIndex <= 0 ? 'transparent' : 'white', cursor: currentIndex <= 0 ? 'not-allowed' : 'pointer', color: currentIndex <= 0 ? '#cbd5e1' : '#64748b' }}>
+                                <ChevronLeft size={16} />
+                            </button>
+                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700', padding: '0 8px' }}>{currentIndex + 1} / {siblingIds.length}</span>
+                            <button onClick={() => navigateToSession(1)} disabled={currentIndex >= siblingIds.length - 1} style={{ padding: '4px', borderRadius: '6px', border: 'none', background: currentIndex >= siblingIds.length - 1 ? 'transparent' : 'white', cursor: currentIndex >= siblingIds.length - 1 ? 'not-allowed' : 'pointer', color: currentIndex >= siblingIds.length - 1 ? '#cbd5e1' : '#64748b' }}>
+                                <ChevronRight size={16} />
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Tab Navigation Row */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 0.5rem' }}>
+                <div style={{ display: 'flex', gap: '4px', background: 'white', padding: '3px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                    <button
+                        onClick={() => setActiveTab('conversation')}
+                        style={{
+                            padding: '5px 18px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: '700',
+                            background: activeTab === 'conversation' ? 'var(--primary)' : 'transparent',
+                            color: activeTab === 'conversation' ? 'white' : '#64748b',
+                            transition: 'all 0.15s'
+                        }}
+                    >
+                        Transcript
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('info')}
+                        style={{
+                            padding: '5px 18px',
+                            borderRadius: '8px',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.85rem',
+                            fontWeight: '700',
+                            background: activeTab === 'info' ? 'var(--primary)' : 'transparent',
+                            color: activeTab === 'info' ? 'white' : '#64748b',
+                            transition: 'all 0.15s'
+                        }}
+                    >
+                        Details
+                    </button>
+                </div>
+
+                {activeTab === 'conversation' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button onClick={copyConversation} style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '5px 10px', fontSize: '0.8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b' }}>
+                            {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />} {copied ? 'Copied' : 'Copy'}
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            {/* Main Content Card Scroll Area */}
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                {activeTab === 'info' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
+                        {/* Summary & Review Section */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                            {/* Summary Card */}
+                            <div style={{ background: 'white', borderRadius: '16px', padding: '1.5rem', border: '1px solid var(--border)', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                                    <h3 style={{ color: 'var(--primary)', fontSize: '1rem', fontWeight: '800', margin: 0 }}>Call Summary</h3>
+                                    {isMaster && !editSummaryMode && (
+                                        <button onClick={() => { setEditSummaryText(conversation?.summary || ''); setEditSummaryMode(true); }}
+                                            style={{ fontSize: '0.75rem', padding: '6px 12px', borderRadius: '8px', border: '1px solid #e2e8f0', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b' }}>
+                                            <Edit2 size={12} /> Edit
+                                        </button>
+                                    )}
+                                </div>
+                                {editSummaryMode ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        <textarea value={editSummaryText} onChange={e => setEditSummaryText(e.target.value)} rows={6} style={{ width: '100%', padding: '12px', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '0.9rem', resize: 'vertical', lineHeight: 1.5 }} />
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button onClick={saveSummary} disabled={savingSummary} style={{ flex: 1, padding: '10px', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '0.9rem', fontWeight: '700' }}>{savingSummary ? 'Saving...' : 'Save Summary'}</button>
+                                            <button onClick={() => setEditSummaryMode(false)} style={{ padding: '10px 16px', background: '#f1f5f9', border: 'none', borderRadius: '10px', cursor: 'pointer', fontSize: '0.9rem', color: '#64748b' }}>Cancel</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <p style={{ fontSize: '0.95rem', color: '#475569', lineHeight: 1.6, margin: 0 }}>
+                                        {conversation?.summary || "No summary available for this session."}
+                                    </p>
                                 )}
                             </div>
 
-                            {editSessionMode ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {/* Status Card */}
+                            <div style={{ background: 'white', borderRadius: '16px', padding: '1.5rem', border: '1px solid var(--border)', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                                <h3 style={{ color: 'var(--primary)', fontSize: '1rem', fontWeight: '800', margin: '0 0 1rem 0' }}>Review Status</h3>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
                                     {[
-                                        { label: 'Agent Name', key: 'agent_name', type: 'text' },
-                                        { label: 'Started At', key: 'started_at', type: 'datetime-local' },
-                                        { label: 'Ended At', key: 'ended_at', type: 'datetime-local' },
-                                        { label: 'Duration (secs)', key: 'duration_seconds', type: 'number' },
-                                        { label: 'Status', key: 'status', type: 'text' },
-                                    ].map(field => (
-                                        <div key={field.key}>
-                                            <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: '3px' }}>{field.label}</label>
-                                            <input
-                                                type={field.type}
-                                                value={editSessionData[field.key] || ''}
-                                                onChange={e => setEditSessionData(p => ({ ...p, [field.key]: e.target.value }))}
-                                                style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', background: 'white' }}
-                                            />
-                                        </div>
-                                    ))}
-                                    <button onClick={saveSessionMeta} disabled={savingSession} style={{ padding: '8px', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                        <Save size={14} /> {savingSession ? 'Saving…' : 'Save Changes'}
-                                    </button>
-                                    <div style={{ fontSize: '0.7rem', color: '#ef4444', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                                        <AlertCircle size={10} /> Master Admin change — cannot be undone
+                                        { id: 'pending', label: 'Pending', icon: '📋' },
+                                        { id: 'needs_review', label: 'Needs Review', icon: '⚠️' },
+                                        { id: 'completed', label: 'Completed', icon: '✅' }
+                                    ].map(opt => {
+                                        const isSelected = reviewStatus === opt.id;
+                                        return (
+                                            <button
+                                                key={opt.id}
+                                                onClick={() => handleStatusChange(opt.id)}
+                                                disabled={updatingStatus}
+                                                style={{
+                                                    padding: '8px 16px',
+                                                    borderRadius: '10px',
+                                                    border: isSelected ? 'none' : '1px solid #e2e8f0',
+                                                    background: isSelected ? (opt.id === 'completed' ? '#10b981' : (opt.id === 'needs_review' ? '#f59e0b' : '#64748b')) : 'white',
+                                                    color: isSelected ? 'white' : '#64748b',
+                                                    fontWeight: '700',
+                                                    fontSize: '0.85rem',
+                                                    cursor: updatingStatus ? 'not-allowed' : 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    transition: 'all 0.2s',
+                                                    boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.1)' : 'none'
+                                                }}
+                                            >
+                                                <span>{opt.icon}</span> {opt.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {conversation?.reviewed_by && (
+                                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', background: '#f8fafc', padding: '10px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Check size={14} /> Review by {conversation.reviewer_email || conversation.reviewed_by} on {formatDate(conversation.reviewed_at)}
                                     </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Session Metadata Sections */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                            {/* Detailed Info Card */}
+                            <div style={{ background: 'white', borderRadius: '16px', padding: '1.5rem', border: '1px solid var(--border)', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                                    <h3 style={{ color: 'var(--primary)', fontSize: '1rem', fontWeight: '800', margin: 0 }}>Information Details</h3>
+                                    {isMaster && (
+                                        <button
+                                            onClick={() => {
+                                                if (!editSessionMode) {
+                                                    setEditSessionData({
+                                                        agent_name: session?.agent_name || '',
+                                                        started_at: session?.started_at ? new Date(session.started_at).toISOString().slice(0, 16) : '',
+                                                        ended_at: session?.ended_at ? new Date(session.ended_at).toISOString().slice(0, 16) : '',
+                                                        duration_seconds: session?.duration_seconds || 0,
+                                                        status: session?.status || ''
+                                                    });
+                                                }
+                                                setEditSessionMode(!editSessionMode);
+                                            }}
+                                            style={{ color: editSessionMode ? '#ef4444' : '#64748b', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600', textDecoration: 'underline' }}
+                                        >
+                                            {editSessionMode ? 'Cancel Edit' : 'Edit Metadata'}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {editSessionMode ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                        {[
+                                            { label: 'Agent Name', key: 'agent_name', type: 'text' },
+                                            { label: 'Started', key: 'started_at', type: 'datetime-local' },
+                                            { label: 'Ended', key: 'ended_at', type: 'datetime-local' },
+                                            { label: 'Duration (s)', key: 'duration_seconds', type: 'number' },
+                                            { label: 'Status', key: 'status', type: 'text' },
+                                        ].map(f => (
+                                            <div key={f.key}>
+                                                <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px', display: 'block' }}>{f.label}</label>
+                                                <input
+                                                    type={f.type}
+                                                    value={editSessionData[f.key] || ''}
+                                                    onChange={e => setEditSessionData(p => ({ ...p, [f.key]: e.target.value }))}
+                                                    style={{ width: '100%', padding: '10px', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '0.9rem' }}
+                                                />
+                                            </div>
+                                        ))}
+                                        <button onClick={saveSessionMeta} disabled={savingSession} style={{ padding: '10px', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '10px', cursor: 'pointer', fontWeight: '700', marginTop: '8px' }}>
+                                            {savingSession ? 'Saving...' : 'Save Meta Changes'}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+                                        {[
+                                            { label: 'Agent', value: conversation?.agent_name || session?.agent_name || '-' },
+                                            { label: 'Total Turns', value: conversation?.total_turns || conversation?.turns?.length || 0 },
+                                            { label: 'Started', value: formatDateTime(session?.started_at || conversation?.first_message_at) },
+                                            { label: 'Duration', value: formatSecondsToTime(session?.duration_seconds) },
+                                            { label: 'Ended', value: formatDateTime(session?.ended_at || conversation?.last_message_at) },
+                                            { label: 'Startup Time', value: formatSecondsToTime(session?.bot_start_seconds) },
+                                            { label: 'Last Synced', value: formatDateTime(session?.last_synced), full: true }
+                                        ].map((item, idx) => (
+                                            <div key={idx} style={{ gridColumn: item.full ? '1 / -1' : 'auto' }}>
+                                                <div style={{ fontSize: '0.7rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{item.label}</div>
+                                                <div style={{ fontSize: '0.95rem', fontWeight: '600', color: '#1e293b' }}>{item.value}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    /* Conversation Logs Card */
+                    <div style={{ background: 'white', borderRadius: '16px', flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid var(--border)', boxShadow: '0 4px 15px rgba(0,0,0,0.02)', overflow: 'hidden' }}>
+                        <div style={{ padding: '0.75rem 1.5rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981' }}></div>
+                                <h3 style={{ fontSize: '0.85rem', color: '#475569', fontWeight: '800', margin: 0 }}>Conversation Transcript</h3>
+                            </div>
+                            <div className="dropdown-container" ref={downloadRef}>
+                                <button
+                                    onClick={() => setDownloadOpen(!downloadOpen)}
+                                    style={{ padding: '4px 12px', borderRadius: '6px', border: 'none', background: 'var(--primary)', color: 'white', fontSize: '0.75rem', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+                                >
+                                    <Download size={14} /> Export <ChevronDown size={12} />
+                                </button>
+                                {downloadOpen && (
+                                    <div className="dropdown-menu" style={{ top: 'calc(100% + 4px)', borderRadius: '8px' }}>
+                                        <button onClick={() => downloadConversation('json')}>JSON</button>
+                                        <button onClick={() => downloadConversation('csv')}>CSV</button>
+                                        <button onClick={() => downloadConversation('txt')}>Text</button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }} className="chat-container">
+                            {!conversation || !conversation.turns || conversation.turns.length === 0 ? (
+                                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', gap: '1rem' }}>
+                                    <AlertCircle size={48} opacity={0.3} />
+                                    <p style={{ fontWeight: '500' }}>No turns identified in this session.</p>
                                 </div>
                             ) : (
-                                <>
-                                    <div className="info-row"><span className="info-label">Agent Name</span><span className="info-value">{conversation?.agent_name || session?.agent_name || '-'}</span></div>
-                                    <div className="info-row"><span className="info-label">Session ID</span><span className="info-value font-mono" style={{ fontSize: '0.8rem' }}>{sessionId}</span></div>
-                                    <div className="info-row"><span className="info-label">Started</span><span className="info-value">{formatDateTime(session?.started_at || conversation?.first_message_at)}</span></div>
-                                    <div className="info-row"><span className="info-label">Ended</span><span className="info-value">{formatDateTime(session?.ended_at || conversation?.last_message_at)}</span></div>
-                                    <div className="info-row"><span className="info-label">Duration</span><span className="info-value">{formatSecondsToTime(session?.duration_seconds)}</span></div>
-                                    <div className="info-row"><span className="info-label">Startup Time</span><span className="info-value">{formatSecondsToTime(session?.bot_start_seconds)}</span></div>
-                                    <div className="info-row"><span className="info-label">Total Turns</span><span className="info-value">{conversation?.total_turns || conversation?.turns?.length || 0}</span></div>
-                                    <div className="info-row"><span className="info-label">Last Synced</span><span className="info-value">{formatDateTime(session?.last_synced)}</span></div>
-                                </>
-                            )}
-
-                            {/* Review Status */}
-                            <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #eee' }}>
-                                <h4 style={{ marginBottom: '0.8rem', color: 'var(--primary)', fontSize: '0.95rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Tag size={16} /> Review Status
-                                </h4>
-                                <select
-                                    value={reviewStatus}
-                                    onChange={(e) => handleStatusChange(e.target.value)}
-                                    disabled={updatingStatus}
-                                    style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', fontSize: '0.9rem', border: `2px solid ${statusStyle.border}`, background: statusStyle.bg, color: statusStyle.color, fontWeight: '600', cursor: updatingStatus ? 'not-allowed' : 'pointer', outline: 'none', transition: 'all 0.2s' }}
-                                >
-                                    <option value="pending">📋 Pending</option>
-                                    <option value="needs_review">⚠️ Needs Review</option>
-                                    <option value="completed">✅ Completed</option>
-                                </select>
-                                {conversation?.reviewed_by && (
-                                    <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>
-                                        Reviewed by {conversation.reviewer_email || conversation.reviewed_by}
-                                        {conversation.reviewed_at && ` on ${formatDate(conversation.reviewed_at)}`}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Summary with Master Edit */}
-                            {conversation?.summary && (
-                                <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #eee' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                                        <h4 style={{ color: 'var(--primary)', fontSize: '0.9rem', fontWeight: '600' }}>Session Summary</h4>
-                                        {isMaster && !editSummaryMode && (
-                                            <button onClick={() => { setEditSummaryText(conversation.summary); setEditSummaryMode(true); }}
-                                                style={{ fontSize: '0.7rem', padding: '3px 6px', borderRadius: '4px', border: '1px solid var(--border)', background: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', color: 'var(--text-muted)' }}>
-                                                <Edit2 size={10} /> Edit
-                                            </button>
-                                        )}
-                                    </div>
-                                    {editSummaryMode ? (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                            <textarea
-                                                value={editSummaryText}
-                                                onChange={e => setEditSummaryText(e.target.value)}
-                                                rows={5}
-                                                style={{ width: '100%', padding: '8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '0.85rem', resize: 'vertical', lineHeight: 1.4 }}
-                                            />
-                                            <div style={{ display: 'flex', gap: '6px' }}>
-                                                <button onClick={saveSummary} disabled={savingSummary} style={{ flex: 1, padding: '6px', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: '600' }}>{savingSummary ? '...' : '✓ Save'}</button>
-                                                <button onClick={() => setEditSummaryMode(false)} style={{ padding: '6px 10px', background: 'white', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}>Cancel</button>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.5, margin: 0 }}>{conversation.summary}</p>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Recording */}
-                            {session?.recordingUrl && (
-                                <div className="info-row" style={{ flexDirection: 'column', alignItems: 'flex-start', marginTop: '1.5rem', gap: '0.8rem' }}>
-                                    <span className="info-label" style={{ color: 'var(--primary)', fontWeight: 'bold' }}>Call Recording</span>
-                                    <audio controls preload="auto" style={{ width: '100%', height: '35px' }} src={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`}>
-                                        Your browser does not support the audio element.
-                                    </audio>
-                                    <a href={`/api/proxy-recording?url=${encodeURIComponent(session.recordingUrl)}`} download={`recording-${sessionId}.mp3`} target="_blank" rel="noopener noreferrer"
-                                        style={{ fontSize: '0.8rem', color: 'var(--primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <Download size={14} /> Download Recording
-                                    </a>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="sidebar-footer">
-                            <button className="btn-logout" onClick={() => navigate(-1)}>
-                                <ArrowLeft size={18} style={{ marginRight: '8px' }} /> Back
-                            </button>
-                        </div>
-                    </div>
-                </aside>
-
-                {/* Main Content */}
-                <main className="dashboard-main" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflowY: 'hidden', padding: 0, background: 'white' }}>
-                    <div style={{ padding: '2rem 2rem 0 2rem', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', color: '#64748b', padding: '5px', borderRadius: '50%', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#e2e8f0'} onMouseOut={(e) => e.currentTarget.style.background = 'none'}>
-                                <ArrowLeft size={24} />
-                            </button>
-                            <h1 style={{ color: 'var(--primary)', fontSize: '1.5rem' }}>Conversation Logs</h1>
-                            {isMaster && (
-                                <span style={{ fontSize: '0.7rem', background: '#fef3c7', color: '#92400e', padding: '2px 8px', borderRadius: '4px', fontWeight: '600', border: '1px solid #fcd34d' }}>
-                                    👑 Master Edit Mode
-                                </span>
-                            )}
-                        </div>
-
-                        {siblingIds.length > 1 && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <button onClick={() => navigateToSession(-1)} disabled={currentIndex <= 0} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 14px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '500', border: '1px solid #e5e7eb', cursor: currentIndex <= 0 ? 'not-allowed' : 'pointer', background: currentIndex <= 0 ? '#f8fafc' : 'white', color: currentIndex <= 0 ? '#cbd5e1' : '#374151', transition: 'all 0.2s' }}>
-                                    <ChevronLeft size={16} /> Newer
-                                </button>
-                                <span style={{ fontSize: '0.8rem', color: '#94a3b8', minWidth: '60px', textAlign: 'center' }}>{currentIndex + 1} / {siblingIds.length}</span>
-                                <button onClick={() => navigateToSession(1)} disabled={currentIndex >= siblingIds.length - 1} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 14px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '500', border: '1px solid #e5e7eb', cursor: currentIndex >= siblingIds.length - 1 ? 'not-allowed' : 'pointer', background: currentIndex >= siblingIds.length - 1 ? '#f8fafc' : 'white', color: currentIndex >= siblingIds.length - 1 ? '#cbd5e1' : '#374151', transition: 'all 0.2s' }}>
-                                    Older <ChevronRight size={16} />
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="conversation-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflowY: 'auto', border: 'none', boxShadow: 'none', borderRadius: 0, padding: '0 2rem 2rem 2rem' }}>
-                        <div className="conversation-header">
-                            <div className="conversation-actions" style={{ marginLeft: 'auto' }}>
-                                <button className="btn-action" onClick={copyConversation} title="Copy conversation">
-                                    {copied ? <Check size={18} /> : <Copy size={18} />}
-                                    {copied ? 'Copied!' : 'Copy'}
-                                </button>
-                                <div className="dropdown-container" ref={downloadRef}>
-                                    <button className="btn-action" onClick={() => setDownloadOpen(!downloadOpen)}>
-                                        <Download size={18} /> Download <ChevronDown size={14} />
-                                    </button>
-                                    {downloadOpen && (
-                                        <div className="dropdown-menu">
-                                            <button onClick={() => downloadConversation('json')}>JSON</button>
-                                            <button onClick={() => downloadConversation('csv')}>CSV</button>
-                                            <button onClick={() => downloadConversation('txt')}>TXT</button>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
-                        {!conversation || !conversation.turns || conversation.turns.length === 0 ? (
-                            <div className="no-conversation"><p>No conversation logs found for this session.</p></div>
-                        ) : (
-                            <div className="chat-container">
-                                {conversation.turns.map((turn, index) => (
-                                    <div key={turn.turn_id || index} className="turn-block">
-                                        {/* Master edit overlay */}
+                                conversation.turns.map((turn, index) => (
+                                    <div key={turn.turn_id || index} style={{ marginBottom: '2rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                         {isMaster && editingTurnIndex === index ? (
-                                            <div style={{ background: '#fffbeb', border: '2px solid #fcd34d', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                    <Edit2 size={14} color="#d97706" />
-                                                    <span style={{ fontSize: '0.8rem', fontWeight: '700', color: '#92400e' }}>Editing Turn {index + 1}</span>
+                                            <div style={{ background: '#fffbeb', border: '2px solid #fcd34d', borderRadius: '20px', padding: '24px', boxShadow: '0 10px 20px rgba(217,119,6,0.05)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.5rem' }}>
+                                                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#d97706' }}>
+                                                        <Edit2 size={16} />
+                                                    </div>
+                                                    <span style={{ fontWeight: '800', color: '#92400e' }}>Editing Sequence #{index + 1}</span>
                                                 </div>
-                                                <div>
-                                                    <label style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px', display: 'block' }}>User Message</label>
-                                                    <textarea value={editTurnData.user_message} onChange={e => setEditTurnData(p => ({ ...p, user_message: e.target.value }))} rows={3} style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.9rem', resize: 'vertical' }} />
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '1.5rem' }}>
+                                                    <div>
+                                                        <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#92400e', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>User Message</label>
+                                                        <textarea value={editTurnData.user_message} onChange={e => setEditTurnData(p => ({ ...p, user_message: e.target.value }))} rows={4} style={{ width: '100%', padding: '12px', border: '1px solid #fcd34d', borderRadius: '12px', fontSize: '0.95rem' }} />
+                                                    </div>
+                                                    <div>
+                                                        <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#92400e', textTransform: 'uppercase', marginBottom: '8px', display: 'block' }}>Assistant Response</label>
+                                                        <textarea value={editTurnData.assistant_message} onChange={e => setEditTurnData(p => ({ ...p, assistant_message: e.target.value }))} rows={4} style={{ width: '100%', padding: '12px', border: '1px solid #fcd34d', borderRadius: '12px', fontSize: '0.95rem' }} />
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <label style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '4px', display: 'block' }}>Assistant Message</label>
-                                                    <textarea value={editTurnData.assistant_message} onChange={e => setEditTurnData(p => ({ ...p, assistant_message: e.target.value }))} rows={3} style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '0.9rem', resize: 'vertical' }} />
-                                                </div>
-                                                <div style={{ display: 'flex', gap: '8px' }}>
-                                                    <button onClick={() => saveTurn(index)} disabled={savingTurn} style={{ flex: 1, padding: '8px', background: 'var(--primary)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                                                        <Save size={14} /> {savingTurn ? 'Saving…' : 'Save Turn'}
-                                                    </button>
-                                                    <button onClick={() => setEditingTurnIndex(null)} style={{ padding: '8px 16px', background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem' }}>
-                                                        Cancel
-                                                    </button>
+                                                <div style={{ display: 'flex', gap: '12px' }}>
+                                                    <button onClick={() => saveTurn(index)} disabled={savingTurn} style={{ flex: 1, padding: '12px', background: '#d97706', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '700', cursor: 'pointer' }}>{savingTurn ? 'Saving...' : 'Confirm Changes'}</button>
+                                                    <button onClick={() => setEditingTurnIndex(null)} style={{ padding: '12px 24px', background: 'white', border: '1px solid #fcd34d', borderRadius: '12px', color: '#92400e', cursor: 'pointer' }}>Discard</button>
                                                 </div>
                                             </div>
                                         ) : (
                                             <>
-                                                {isMaster && (
-                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '4px' }}>
-                                                        <button onClick={() => startEditTurn(index)} style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px', border: '1px solid #fcd34d', background: '#fffbeb', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px', color: '#92400e' }}>
-                                                            <Edit2 size={10} /> Edit Turn {index + 1}
-                                                        </button>
-                                                    </div>
-                                                )}
                                                 {turn.user_message && (
-                                                    <div className="message user-message">
-                                                        <div className="avatar user-avatar"><User size={20} /></div>
-                                                        <div className="content">
-                                                            <div className="message-header"><span className="role-label">User</span></div>
-                                                            <div className="bubble user-bubble">{turn.user_message}</div>
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-start', maxWidth: '85%' }}>
+                                                        <div style={{
+                                                            background: 'white',
+                                                            color: '#1e293b',
+                                                            padding: '1.25rem 1.75rem',
+                                                            borderRadius: '0 24px 24px 24px',
+                                                            border: '1px solid #f1f5f9',
+                                                            boxShadow: '0 4px 6px rgba(0,0,0,0.02)',
+                                                            position: 'relative'
+                                                        }}>
+                                                            <div style={{ fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                <User size={12} /> User Message
+                                                            </div>
+                                                            <div style={{ fontSize: '1rem', lineHeight: '1.6' }}>{turn.user_message}</div>
                                                         </div>
                                                     </div>
                                                 )}
                                                 {turn.assistant_message && (
-                                                    <div className="message bot-message">
-                                                        <div className="avatar bot-avatar"><Bot size={20} /></div>
-                                                        <div className="content">
-                                                            <div className="message-header"><span className="role-label">Assistant</span></div>
-                                                            <div className="bubble bot-bubble">{turn.assistant_message}</div>
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginLeft: 'auto', maxWidth: '85%', marginTop: '4px' }}>
+                                                        <div style={{
+                                                            background: 'linear-gradient(135deg, #008F4B 0%, #006b38 100%)',
+                                                            color: 'white',
+                                                            padding: '1.25rem 1.75rem',
+                                                            borderRadius: '24px 0 24px 24px',
+                                                            boxShadow: '0 8px 20px rgba(0,143,75,0.15)',
+                                                            position: 'relative'
+                                                        }}>
+                                                            <div style={{ fontSize: '0.7rem', fontWeight: '800', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                <Bot size={12} /> FarmVaidya AI
+                                                            </div>
+                                                            <div style={{ fontSize: '1rem', lineHeight: '1.6' }}>{turn.assistant_message}</div>
+                                                            {isMaster && (
+                                                                <button
+                                                                    onClick={() => startEditTurn(index)}
+                                                                    style={{ position: 'absolute', right: '1rem', top: '1rem', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '4px', borderRadius: '6px', cursor: 'pointer' }}
+                                                                >
+                                                                    <Edit2 size={12} />
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 )}
                                             </>
                                         )}
                                     </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
-                    {siblingIds.length > 1 && (
-                        <div style={{ padding: '12px 2rem', borderTop: '1px solid #e5e7eb', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <button onClick={() => navigateToSession(-1)} disabled={currentIndex <= 0} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', fontWeight: '600', fontSize: '0.9rem', border: 'none', cursor: currentIndex <= 0 ? 'not-allowed' : 'pointer', background: currentIndex <= 0 ? '#e2e8f0' : '#008F4B', color: currentIndex <= 0 ? '#94a3b8' : 'white', transition: 'all 0.2s' }}>
-                                <ChevronLeft size={18} /> Previous Session
-                            </button>
-                            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Session {currentIndex + 1} of {siblingIds.length}</span>
-                            <button onClick={() => navigateToSession(1)} disabled={currentIndex >= siblingIds.length - 1} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', fontWeight: '600', fontSize: '0.9rem', border: 'none', cursor: currentIndex >= siblingIds.length - 1 ? 'not-allowed' : 'pointer', background: currentIndex >= siblingIds.length - 1 ? '#e2e8f0' : '#008F4B', color: currentIndex >= siblingIds.length - 1 ? '#94a3b8' : 'white', transition: 'all 0.2s' }}>
-                                Next Session <ChevronRight size={18} />
-                            </button>
+                                ))
+                            )}
                         </div>
-                    )}
-                </main>
+                    </div>
+                )}
             </div>
-        </>
+        </div >
     );
+
 }

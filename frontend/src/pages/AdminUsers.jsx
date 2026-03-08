@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { adminAPI, authAPI } from '../services/api';
-import Header from '../components/Header';
-import { Users, Plus, Edit2, Trash2, Power, Mail, UserPlus, ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { Users, Plus, Edit2, Trash2, Power, Mail, UserPlus, ChevronDown, ChevronLeft, ChevronRight, X, Settings as SettingsIcon } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 
 export default function AdminUsers() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [users, setUsers] = useState([]);
   const [creators, setCreators] = useState([]);
@@ -55,7 +55,7 @@ export default function AdminUsers() {
       try {
         const [meRes, agentRes, creatorRes] = await Promise.all([
           authAPI.getProfile(),
-          adminAPI.getAllAgents({ limit: 1000 }),
+          adminAPI.getAllAgents({ limit: 1000, simple: 'true' }),
           adminAPI.getCreators()
         ]);
         setCurrentUser(meRes.data.user);
@@ -126,10 +126,11 @@ export default function AdminUsers() {
 
     const interval = setInterval(() => {
       loadUsers(true);
-    }, 45000); // Polling even slower for background updates
+    }, 45000);
 
     return () => clearInterval(interval);
   }, [loadUsers]);
+
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -261,7 +262,6 @@ export default function AdminUsers() {
   if (loading) {
     return (
       <>
-        <Header />
         <div className="loading-container">
           <div className="spinner"></div>
           <p>Loading Admin Panel...</p>
@@ -272,17 +272,18 @@ export default function AdminUsers() {
 
   return (
     <>
-      <Header />
       <div className="admin-users-page">
         <div className="page-header">
           <div>
             <h1><Users size={32} /> User Management {refreshing && <span className="refreshing-indicator">Updating...</span>}</h1>
             <p>Manage user accounts and permissions</p>
           </div>
-          <button onClick={() => setShowCreateModal(true)} className="create-button">
-            <Plus size={20} />
-            Create User
-          </button>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button onClick={() => setShowCreateModal(true)} className="create-button">
+              <Plus size={20} />
+              Create User
+            </button>
+          </div>
         </div>
 
         {error && <div className="error-message">{error}</div>}
@@ -938,6 +939,11 @@ export default function AdminUsers() {
         .role-super_admin {
           background: #fed7d7;
           color: #c53030;
+        }
+        
+        .role-user {
+          background: #e2e8f0; 
+          color: #4a5568;
         }
 
         .tier-badge {

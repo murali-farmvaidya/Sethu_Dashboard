@@ -23,7 +23,7 @@ const verifyToken = (req, res, next) => {
     if (!authHeader) return res.status(401).send('Unauthorized');
     const token = authHeader.split(' ')[1];
     import('jsonwebtoken').then(jwt => {
-        jwt.default.verify(token, process.env.JWT_SECRET || 'your-default-dev-secret-do-not-use-in-prod', (err, user) => {
+        jwt.default.verify(token, process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production-2026', (err, user) => {
             if (err) return res.status(403).send('Invalid Token');
             req.user = user;
             next();

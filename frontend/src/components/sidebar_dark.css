@@ -1,0 +1,105 @@
+/* src/components/Sidebar.css (Dark Variant) */
+.sidebar-container {
+    width: 250px;
+    background-color: var(--primary, #008F4B);
+    color: #ffffff;
+    height: 100vh;
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    font-family: "Inter", sans-serif;
+    flex-shrink: 0;
+}
+
+.sidebar-logo-container {
+    padding: 18px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sidebar-logo-container img {
+    filter: drop-shadow(1px 0 0 white) drop-shadow(0 1px 0 white) drop-shadow(-1px 0 0 white) drop-shadow(0 -1px 0 white);
+}
+
+.sidebar-brand {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: 1px;
+}
+
+.sidebar-nav {
+    padding: 20px 0;
+    flex: 1;
+}
+
+.sidebar-section {
+    margin-bottom: 5px;
+}
+
+.sidebar-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    cursor: default;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sidebar-subitems {
+    display: flex;
+    flex-direction: column;
+    background-color: rgba(0, 0, 0, 0.1);
+    padding: 8px 0;
+}
+
+.sidebar-subitem {
+    padding: 10px 20px 10px 48px;
+    color: rgba(255, 255, 255, 0.8);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.sidebar-subitem:hover {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.sidebar-subitem:active {
+    transform: scale(0.96);
+}
+
+.sidebar-subitem.active {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.15);
+    font-weight: 500;
+    border-left: 3px solid #ffeb3b;
+}
+
+.sidebar-section.no-subitems .sidebar-section-header {
+    text-transform: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.sidebar-section.no-subitems .sidebar-section-header.active {
+    background-color: rgba(255, 255, 255, 0.15);
+    border-left: 3px solid #ffeb3b;
+}

@@ -96,7 +96,7 @@ export const authAPI = {
 };
 
 export const campaignAPI = {
-    getAllCampaigns: () => api.get('/api/campaigns'),
+    getAllCampaigns: (agentId) => api.get(`/api/campaigns${agentId ? `?agentId=${agentId}` : ''}`),
     getCampaignCallDetails: (campaignId) => api.get(`/api/campaigns/${campaignId}/calls`),
     createCampaign: (formData) => api.post('/api/campaigns', formData, {
         headers: {

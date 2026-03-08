@@ -1,21 +1,34 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { userAPI } from '../services/api';
 import { Users, MessageSquare, Clock, Search, ArrowUpDown, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Lock } from 'lucide-react';
-import Header from '../components/Header';
 
 export default function UserDashboard() {
   const [dashboard, setDashboard] = useState(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('sessionCount');
-  const [sortOrder, setSortOrder] = useState('desc');
-  const [currentPage, setCurrentPage] = useState(1);
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
+  const [sortBy, setSortBy] = useState(searchParams.get('sortBy') || 'sessionCount');
+  const [sortOrder, setSortOrder] = useState(searchParams.get('sortOrder') || 'desc');
+  const [currentPage, setCurrentPage] = useState(parseInt(searchParams.get('page')) || 1);
   const [totalPages, setTotalPages] = useState(1);
   const [itemsPerPage] = useState(10);
-  const navigate = useNavigate();
+
+  const updateSearchParams = useCallback((updates) => {
+    const nextParams = new URLSearchParams(searchParams);
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') {
+        nextParams.delete(key);
+      } else {
+        nextParams.set(key, value);
+      }
+    });
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     loadDashboard();
@@ -28,9 +41,22 @@ export default function UserDashboard() {
     return () => clearInterval(interval);
   }, [currentPage, searchTerm, sortBy, sortOrder]);
 
+  // Debounce search
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, sortBy, sortOrder]);
+    const timer = setTimeout(() => {
+      const urlSearch = searchParams.get('search') || '';
+      if (searchTerm !== urlSearch) {
+        updateSearchParams({ search: searchTerm, page: 1 });
+        setCurrentPage(1);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm, updateSearchParams, searchParams]);
+
+  const updatePage = (page) => {
+    setCurrentPage(page);
+    updateSearchParams({ page });
+  };
 
   const loadDashboard = async (silent = false) => {
     try {
@@ -69,145 +95,109 @@ export default function UserDashboard() {
 
 
   const handleSort = (field) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('desc');
-    }
+    const newOrder = sortBy === field ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc';
+    setSortBy(field);
+    setSortOrder(newOrder);
+    setCurrentPage(1);
+    updateSearchParams({ sortBy: field, sortOrder: newOrder, page: 1 });
   };
 
   return (
-    <>
-      <Header />
-      <div className="dashboard-layout">
-        {/* Left Sidebar */}
-        <aside className="dashboard-sidebar">
-          {/* Mobile Toggle Header */}
-          <div className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)' }}>Dashboard Menu</h3>
-            {isSidebarOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+    <div style={{ padding: '0 24px' }}>
+      {/* Main Content */}
+      <div className="dashboard-main-content" style={{ padding: '0', maxWidth: '100%' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+          <div style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Assigned Agents</span>
+            <span style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text)', marginTop: '8px' }}>{stats.totalAgents || 0}</span>
           </div>
+          <div style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Sessions</span>
+            <span style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text)', marginTop: '8px' }}>{stats.totalSessions || 0}</span>
+          </div>
+          <div style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column' }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: '13px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Usage</span>
+            <span style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text)', marginTop: '8px' }}>{Math.floor((stats.totalDuration || 0) / 60).toLocaleString()} min</span>
+            <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text-muted)', marginTop: '8px' }}>Since Jan 1, 2026</span>
+          </div>
+        </div>
 
-          <div className={`sidebar-content ${isSidebarOpen ? 'open' : ''}`}>
-            <div className="stats-vertical">
-              <div className="stat-card-vertical">
-                <div className="stat-icon"><Users size={24} /></div>
-                <div className="stat-info">
-                  <p className="stat-value">{stats.totalAgents || 0}</p>
-                  <p className="stat-label">Assigned Agents</p>
-                </div>
+        <header className="dashboard-header-title">
+          <h1>My Agents Dashboard</h1>
+        </header>
+
+        {/* Search Bar */}
+        <div className="search-container">
+          <Search size={20} className="search-icon" />
+          <input
+            type="text"
+            className="search-input"
+            placeholder="Search my agents..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* Sorting & Info */}
+        <div className="section-header">
+          <h2 className="section-title">My Agents</h2>
+          <div className="section-controls">
+            <span className="section-count">{agents.length} agents</span>
+            <button className="btn-sort" onClick={() => handleSort('sessionCount')}>
+              <ArrowUpDown size={16} />
+              Sessions {sortBy === 'sessionCount' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+            </button>
+            <button className="btn-sort" onClick={() => handleSort('name')}>
+              <ArrowUpDown size={16} />
+              Name {sortBy === 'name' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
+            </button>
+          </div>
+        </div>
+
+        {/* Agents Grid */}
+        <div className="agents-grid">
+          {agents.map(agent => (
+            <div
+              key={agent.agentId}
+              className="card agent-card"
+              onClick={() => navigate(`/user/agent/${agent.agentId}`)}
+            >
+              <h3 className="agent-name">{agent.agentName}</h3>
+              <span className="badge">{agent.stats.sessionCount} Sessions</span>
+              <div style={{ marginTop: '8px', fontSize: '0.9rem', color: '#666' }}>
+                {Math.round((agent.stats.totalDuration || 0) / 60)} Minutes
               </div>
-              <div className="stat-card-vertical">
-                <div className="stat-icon"><MessageSquare size={24} /></div>
-                <div className="stat-info">
-                  <p className="stat-value">{stats.totalSessions || 0}</p>
-                  <p className="stat-label">Total Sessions</p>
-                </div>
-              </div>
-              <div className="stat-card-vertical">
-                <div className="stat-icon"><Clock size={24} /></div>
-                <div className="stat-info">
-                  <p className="stat-value">
-                    {Math.round((stats.totalDuration || 0) / 60)} <span style={{ fontSize: '1rem', fontWeight: 'normal' }}>min</span>
-                  </p>
-                  <p className="stat-label">Total Duration</p>
-                  <p className="stat-sublabel" style={{ fontSize: '0.7rem', color: '#666', marginTop: '4px', whiteSpace: 'nowrap' }}>
-                    Jan 1, 2026 - Now
-                  </p>
-                </div>
-              </div>
+              <p className="text-small text-muted agent-id" style={{ marginTop: 'auto' }}>ID: {agent.agentId}</p>
             </div>
+          ))}
+          {agents.length === 0 && <p className="text-center text-muted">No agents found.</p>}
+        </div>
 
-            <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button className="btn-logout" onClick={() => navigate('/change-password')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', border: '2px solid #e2e8f0', background: 'white', color: 'var(--text)' }}>
-                <Lock size={18} /> Change Password
-              </button>
-              <button className="btn-logout" onClick={() => navigate('/login')}>
-                Logout
-              </button>
-            </div>
-          </div>
-        </aside>
-        {/* Main Content */}
-        <main className="dashboard-main">
-          <header className="dashboard-header-title">
-            <h1>My Dashboard</h1>
-          </header>
-
-          {/* Search Bar */}
-          <div className="search-container">
-            <Search size={20} className="search-icon" />
-            <input
-              type="text"
-              className="search-input"
-              placeholder="Search my agents..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          {/* Sorting & Info */}
-          <div className="section-header">
-            <h2 className="section-title">My Agents</h2>
-            <div className="section-controls">
-              <span className="section-count">{agents.length} agents</span>
-              <button className="btn-sort" onClick={() => handleSort('sessionCount')}>
-                <ArrowUpDown size={16} />
-                Sessions {sortBy === 'sessionCount' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
-              </button>
-              <button className="btn-sort" onClick={() => handleSort('name')}>
-                <ArrowUpDown size={16} />
-                Name {sortBy === 'name' ? (sortOrder === 'desc' ? '↓' : '↑') : ''}
-              </button>
-            </div>
-          </div>
-
-          {/* Agents Grid */}
-          <div className="agents-grid">
-            {agents.map(agent => (
-              <div
-                key={agent.agentId}
-                className="card agent-card"
-                onClick={() => navigate(`/user/agent/${agent.agentId}`)}
+        {/* Pagination */}
+        {
+          totalPages > 1 && (
+            <div className="pagination" style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px' }}>
+              <button
+                className="pagination-btn"
+                onClick={() => updatePage(currentPage - 1)}
+                disabled={currentPage === 1}
               >
-                <h3 className="agent-name">{agent.agentName}</h3>
-                <span className="badge">{agent.stats.sessionCount} Sessions</span>
-                <div style={{ marginTop: '8px', fontSize: '0.9rem', color: '#666' }}>
-                  {Math.round((agent.stats.totalDuration || 0) / 60)} Minutes
-                </div>
-                <p className="text-small text-muted agent-id" style={{ marginTop: 'auto' }}>ID: {agent.agentId}</p>
+                <ChevronLeft size={18} /> Prev
+              </button>
+              <div className="pagination-info">
+                Page {currentPage} of {totalPages}
               </div>
-            ))}
-            {agents.length === 0 && <p className="text-center text-muted">No agents found.</p>}
-          </div>
-
-          {/* Pagination */}
-          {
-            totalPages > 1 && (
-              <div className="pagination" style={{ marginTop: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px' }}>
-                <button
-                  className="pagination-btn"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                >
-                  <ChevronLeft size={18} /> Prev
-                </button>
-                <div className="pagination-info">
-                  Page {currentPage} of {totalPages}
-                </div>
-                <button
-                  className="pagination-btn"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  Next <ChevronRight size={18} />
-                </button>
-              </div>
-            )
-          }
-        </main >
-      </div >
-    </>
+              <button
+                className="pagination-btn"
+                onClick={() => updatePage(currentPage + 1)}
+                disabled={currentPage === totalPages}
+              >
+                Next <ChevronRight size={18} />
+              </button>
+            </div>
+          )
+        }
+      </div>
+    </div>
   );
 }

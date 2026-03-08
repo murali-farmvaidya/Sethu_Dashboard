@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { campaignAPI, settingsAPI } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { Upload, FileText, CheckCircle, AlertCircle, RefreshCw, RotateCcw, X, Phone, Play, Pause, Clock, ChevronDown, ChevronRight, ExternalLink, Trash2, Copy } from 'lucide-react';
 
 export default function CampaignTab({ agentId, agentName, onNavigateToSession, telephonyConfig }) {
+    const { user } = useAuth();
+    const isSuperAdmin = user?.role === 'super_admin' || user?.userId === 'master_root_0';
+
     const [subTab, setSubTab] = useState('create'); // 'create' | 'inspect'
     const [campaigns, setCampaigns] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -55,7 +59,9 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
     const fetchCampaigns = useCallback(async () => {
         try {
             setLoading(true);
-            const res = await campaignAPI.getAllCampaigns();
+            // If super_admin and showAll is checked, fetch EVERYTHING (don't pass agentId)
+            // Otherwise, fetch filtered by agentId
+            const res = await campaignAPI.getAllCampaigns((isSuperAdmin && showAll) ? null : agentId);
             // Handle various response structures
             let data = [];
             if (res.data && Array.isArray(res.data)) {
@@ -83,14 +89,18 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
 
             setAllCampaigns(normalizedData);
 
-            // Filter campaigns for this agent
-            // We match by the _AGsuffix which uses the last 4 digits of agentId
-            const suffix = agentId && agentId.length > 4 ? `_ag${agentId.slice(-4)}` : `_ag${agentId}`;
-            const agentCampaigns = normalizedData.filter(c => {
-                const name = (c.friendly_name || c.name || '').toLowerCase();
-                return name.includes(`_ag${agentId}`.toLowerCase()) || name.includes(suffix.toLowerCase());
-            });
-            setCampaigns(agentCampaigns);
+            // If we are strictly filtering for an agent (either naturally or as non-superadmin)
+            // ensure the client-side name match is also satisfied just to be safe
+            if (agentId && !(isSuperAdmin && showAll)) {
+                const suffix = agentId && agentId.length > 4 ? `_ag${agentId.slice(-4)}` : `_ag${agentId}`;
+                const agentCampaigns = normalizedData.filter(c => {
+                    const name = (c.friendly_name || c.name || '').toLowerCase();
+                    return name.includes(`_ag${agentId}`.toLowerCase()) || name.includes(suffix.toLowerCase());
+                });
+                setCampaigns(agentCampaigns);
+            } else {
+                setCampaigns(normalizedData);
+            }
         } catch (error) {
             console.error('Failed to fetch campaigns:', error);
         } finally {
@@ -100,7 +110,7 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
 
     useEffect(() => {
         fetchCampaigns();
-    }, [fetchCampaigns]);
+    }, [fetchCampaigns, showAll]);
 
     const fetchCallDetails = async (campaignId) => {
         if (!campaignId) {
@@ -720,15 +730,17 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                         </div>
 
                         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', color: '#374151' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={showAll}
-                                    onChange={e => setShowAll(e.target.checked)}
-                                    style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#008F4B' }}
-                                />
-                                Show All
-                            </label>
+                            {isSuperAdmin && (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', color: '#374151' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={showAll}
+                                        onChange={e => setShowAll(e.target.checked)}
+                                        style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#008F4B' }}
+                                    />
+                                    Show All
+                                </label>
+                            )}
                             <button onClick={fetchCampaigns}
                                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontSize: '0.85rem', color: '#64748b' }}>
                                 <RefreshCw size={14} /> Refresh
@@ -1156,8 +1168,8 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
                                                                         const isCampaignDone = campaignStatus === 'completed' || campaignStatus === 'failed';
                                                                         const hint = isCampaignRunning ? 'In queue — will be called shortly'
                                                                             : isCampaignPaused ? 'Campaign paused before this call'
-                                                                            : isCampaignDone ? 'Campaign ended before this call'
-                                                                            : null;
+                                                                                : isCampaignDone ? 'Campaign ended before this call'
+                                                                                    : null;
                                                                         return hint ? <span style={{ fontSize: '0.7rem', color: '#94a3b8', paddingLeft: '2px' }}>{hint}</span> : null;
                                                                     })()}
                                                                 </div>

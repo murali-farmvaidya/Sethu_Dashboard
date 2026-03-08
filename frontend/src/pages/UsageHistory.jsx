@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { paymentAPI } from '../services/api';
-import Header from '../components/Header';
 import {
     ArrowLeft, Clock, PhoneIncoming, PhoneOutgoing,
     ChevronLeft, ChevronRight, CheckCircle, XCircle, Search, X
@@ -77,8 +76,7 @@ const UsageHistory = () => {
 
     return (
         <React.Fragment>
-            <Header />
-            <div className="page-container">
+                        <div className="page-container">
                 {/* Page Header */}
                 <div className="page-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -14,14 +14,21 @@ import SystemStatus from './pages/SystemStatus';
 import Billing from './pages/Billing';
 import UsageHistory from './pages/UsageHistory';
 import Settings from './pages/Settings';
+import SystemSettings from './pages/SystemSettings';
+import UserAnalytics from './pages/UserAnalytics';
+import PaymentHistory from './pages/PaymentHistory';
+import AdminTools from './pages/AdminTools';
+import Plans from './pages/Plans';
+import Bills from './pages/Bills';
 
 import Header from './components/Header';
+import MainLayout from './components/MainLayout';
 import DeactivationModal from './components/DeactivationModal';
 
 
 import './App.css';
 
-function PrivateRoute({ children, adminOnly = false }) {
+function PrivateRoute({ adminOnly = false }) {
   const { isAuthenticated, isAdmin, loading, user } = useAuth();
 
   if (loading) {
@@ -46,7 +53,11 @@ function PrivateRoute({ children, adminOnly = false }) {
     return <Navigate to="/change-password" replace />;
   }
 
-  return children;
+  return (
+    <MainLayout>
+      <Outlet />
+    </MainLayout>
+  );
 }
 
 function AppRoutes() {
@@ -57,86 +68,42 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password/:token" element={<ResetPassword />} />
-      <Route path="/change-password" element={
-        <PrivateRoute>
-          <ChangePassword />
-        </PrivateRoute>
-      } />
 
-      {/* Admin Routes */}
-      <Route path="/admin" element={
-        <PrivateRoute adminOnly={true}>
-          <Dashboard />
-        </PrivateRoute>
-      } />
-      <Route path="/admin/users" element={
-        <PrivateRoute adminOnly={true}>
-          <AdminUsers />
-        </PrivateRoute>
-      } />
-      <Route path="/admin/permissions" element={
-        <PrivateRoute adminOnly={true}>
-          <ManagePermissions />
-        </PrivateRoute>
-      } />
-      <Route path="/admin/agent/:agentId" element={
-        <PrivateRoute adminOnly={true}>
-          <AgentDetails />
-        </PrivateRoute>
-      } />
+      {/* Authenticated user routes grouping */}
+      <Route element={<PrivateRoute />}>
+        <Route path="/change-password" element={<ChangePassword />} />
+        <Route path="/user/dashboard" element={<UserDashboard />} />
+        <Route path="/user/agent/:agentId" element={<AgentDetails />} />
+        <Route path="/user/session/:sessionId" element={<SessionDetails />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/" element={
+          isAdmin ? <Navigate to="/admin/dashboard" replace /> : <Navigate to="/user/dashboard" replace />
+        } />
+      </Route>
 
-      <Route path="/admin/session/:sessionId" element={
-        <PrivateRoute adminOnly={true}>
-          <SessionDetails />
-        </PrivateRoute>
-      } />
+      {/* Admin routes grouping */}
+      <Route element={<PrivateRoute adminOnly={true} />}>
+        <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="/admin/dashboard" element={<Dashboard />} />
+        <Route path="/admin/dashboard/user-analytics" element={<UserAnalytics />} />
+        <Route path="/admin/agents" element={<Dashboard />} />
+        <Route path="/admin/users/create" element={<AdminUsers />} />
+        <Route path="/admin/users/permissions" element={<ManagePermissions />} />
+        <Route path="/admin/agent/:agentId" element={<AgentDetails />} />
+        <Route path="/admin/session/:sessionId" element={<SessionDetails />} />
+        <Route path="/master/status" element={<SystemStatus />} />
+        <Route path="/admin/system-settings" element={<SystemSettings />} />
 
-      <Route path="/master/status" element={
-
-        <PrivateRoute adminOnly={true}>
-          <SystemStatus />
-        </PrivateRoute>
-      } />
-
-      <Route path="/admin/settings" element={
-        <PrivateRoute adminOnly={true}>
-          <Settings />
-        </PrivateRoute>
-      } />
-
-      {/* User Routes */}
-      <Route path="/user/dashboard" element={
-        <PrivateRoute>
-          <UserDashboard />
-        </PrivateRoute>
-      } />
-      <Route path="/user/agent/:agentId" element={
-        <PrivateRoute>
-          <AgentDetails />
-        </PrivateRoute>
-      } />
-      <Route path="/user/session/:sessionId" element={
-        <PrivateRoute>
-          <SessionDetails />
-        </PrivateRoute>
-      } />
-      <Route path="/admin/billing" element={
-        <PrivateRoute adminOnly={true}>
-          <Billing />
-        </PrivateRoute>
-      } />
-      <Route path="/admin/usage-history" element={
-        <PrivateRoute adminOnly={true}>
-          <UsageHistory />
-        </PrivateRoute>
-      } />
-
-      {/* Root redirect based on role */}
-      <Route path="/" element={
-        <PrivateRoute>
-          {isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/user/dashboard" replace />}
-        </PrivateRoute>
-      } />
+        {/* Payment Routes */}
+        <Route path="/admin/billing" element={<Navigate to="/admin/payments/make" replace />} />
+        <Route path="/admin/payments/make" element={<Billing />} />
+        <Route path="/admin/payments/tools" element={<AdminTools />} />
+        <Route path="/admin/payments/history" element={<PaymentHistory />} />
+        <Route path="/admin/payments/ledger" element={<UsageHistory />} />
+        <Route path="/admin/payments/plans" element={<Plans />} />
+        <Route path="/admin/payments/bills" element={<Bills />} />
+        <Route path="/admin/usage-history" element={<Navigate to="/admin/dashboard/user-analytics" replace />} />
+      </Route>
     </Routes>
   );
 }
