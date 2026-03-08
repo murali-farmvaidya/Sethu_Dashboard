@@ -357,6 +357,7 @@ export const getTransactionHistory = async (req, res) => {
         if (isSuperAdmin && req.query.targetUserId) {
             userId = req.query.targetUserId;
         }
+        console.log(`[getTransactionHistory] Requester: ${req.user.userId} (${req.user.role}, isMaster: ${req.user.isMaster}), Target: ${userId}, Filter: ${req.query.filter}`);
 
 
         const validFilters = ['payments', 'calls', 'all'];

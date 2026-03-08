@@ -155,9 +155,9 @@ export default function Dashboard() {
                     if (action === 'restore') {
                         await adminAPI.restoreAgent(id);
                     } else if (action === 'resync') {
-                        await api.delete(`/api/data-admin/excluded/agent/${id}`);
+                        await api.delete(`data-admin/excluded/agent/${id}`);
                     } else {
-                        await api.delete(`/api/data-admin/excluded-permanent/agent/${id}`);
+                        await api.delete(`data-admin/excluded-permanent/agent/${id}`);
                     }
                     s++;
                 } catch (e) { console.error(e); }
@@ -175,7 +175,7 @@ export default function Dashboard() {
             setHiddenAgents(hiddenRes.data.data.filter(a => a.is_hidden));
 
             const { default: api } = await import('../services/api');
-            const excludedRes = await api.get('/api/data-admin/excluded');
+            const excludedRes = await api.get('data-admin/excluded');
             setExcludedAgents(excludedRes.data.excluded.filter(e => e.item_type === 'agent'));
         } catch (e) {
             console.error("Fetch Recycle Bin Error:", e);
@@ -195,7 +195,7 @@ export default function Dashboard() {
             if (type === 'hidden') {
                 await adminAPI.restoreAgent(id);
             } else {
-                await api.delete(`/api/data-admin/excluded/agent/${id}`);
+                await api.delete(`data-admin/excluded/agent/${id}`);
             }
             fetchRecycleBin();
             fetchAgents();
@@ -209,7 +209,7 @@ export default function Dashboard() {
         confirmToast(`Are you sure you want to PERMANENTLY remove this ${itemType} from the recycle bin? It will NOT be re-synced ever.`, async () => {
             try {
                 const { default: api } = await import('../services/api');
-                await api.delete(`/api/data-admin/excluded-permanent/${itemType}/${id}`);
+                await api.delete(`data-admin/excluded-permanent/${itemType}/${id}`);
                 fetchRecycleBin();
                 toast.success('Permanently deleted from recycle bin.');
             } catch (e) {
