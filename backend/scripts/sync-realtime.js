@@ -24,6 +24,7 @@ const {
 } = require(path.join(__dirname, '../src/services/pipecat_normalization'));
 const { generateSummary } = require(path.join(__dirname, '../src/services/summary.service'));
 const { syncAzurePostgresLogs } = require(path.join(__dirname, '../src/services/azure_postgres_sync'));
+const exotelService = require(path.join(__dirname, '../src/services/exotel.service'));
 
 // ============ CONFIGURATION ============
 const SYNC_START_DATE = new Date('2026-01-01T00:00:00Z');
@@ -461,8 +462,30 @@ async function syncConversations(client, agents) {
                     try {
                         const currentSession = await Session.findByPk(sessionId);
                         if (currentSession) {
-                            const newMetadata = { ...(currentSession.metadata || {}), telephony };
-                            await Session.update({ metadata: newMetadata }, { where: { session_id: sessionId } });
+                            let newMetadata = { ...(currentSession.metadata || {}), telephony };
+
+                            // If phone is missing, try to fetch it from Exotel using the newly extracted call_id
+                            if (telephony.call_id && !currentSession.phone && !currentSession.customer_phone) {
+                                try {
+                                    const callDetails = await exotelService.getCallDetails(telephony.call_id);
+                                    if (callDetails && callDetails.From) {
+                                        newMetadata.phone = callDetails.From;
+                                        // Also store in custom_data as a redundant fallback
+                                        const customData = { ...(currentSession.custom_data || {}), phone: callDetails.From };
+                                        await Session.update({
+                                            metadata: newMetadata,
+                                            custom_data: customData
+                                        }, { where: { session_id: sessionId } });
+                                        logger.info(` 📞 Fetched missing phone ${callDetails.From} from Exotel for ${sessionId}`);
+                                    } else {
+                                        await Session.update({ metadata: newMetadata }, { where: { session_id: sessionId } });
+                                    }
+                                } catch (err) {
+                                    await Session.update({ metadata: newMetadata }, { where: { session_id: sessionId } });
+                                }
+                            } else {
+                                await Session.update({ metadata: newMetadata }, { where: { session_id: sessionId } });
+                            }
                         }
                     } catch (e) { }
                     break; // Only need first telephony metadata

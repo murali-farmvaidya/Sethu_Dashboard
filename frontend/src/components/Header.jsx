@@ -78,15 +78,31 @@ export default function Header() {
         <button className="sidebar-toggle-btn" onClick={() => window.dispatchEvent(new Event('toggle-sidebar'))} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'none', color: 'var(--text)' }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"></path></svg>
         </button>
-        <h1 style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary)', margin: 0 }}>
+        <h1
+          onClick={() => navigate(isAdmin ? '/admin' : '/')}
+          style={{ fontSize: '1.25rem', fontWeight: 'bold', color: 'var(--primary)', margin: 0, cursor: 'pointer' }}
+          title="Go to Home"
+        >
           {user?.id === 'master_root_0' || user?.isMaster ? 'Sevak Master Dashboard' : 'Sevak Dashboard'}
         </h1>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '13px' }}>
-          <div><span style={{ color: 'var(--text-muted)' }}>Credits:</span> <span style={{ fontWeight: '600', color: 'var(--text)' }}>{parseFloat(user?.minutes_balance || 0).toFixed(2)}</span></div>
-          <div><span style={{ color: 'var(--text-muted)' }}>Validity:</span> <span style={{ fontWeight: '500', color: 'var(--text)' }}>{user?.subscription_expiry ? new Date(user.subscription_expiry).toLocaleDateString() : 'Active'}</span></div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto auto', columnGap: '6px', rowGap: '2px', alignItems: 'center', fontSize: '13px' }}>
+          <span style={{ color: 'var(--text-muted)', textAlign: 'right' }}>Credits:</span>
+          <span style={{ fontWeight: '600', color: 'var(--text)' }}>{parseFloat(user?.minutes_balance || 0).toFixed(2)}</span>
+          <span style={{ color: 'var(--text-muted)', textAlign: 'right' }}>Validity:</span>
+          <span style={{ fontWeight: '500', color: 'var(--text)' }}>
+            {user?.subscription_expiry
+              ? (() => {
+                const date = new Date(user.subscription_expiry);
+                const d = date.getDate().toString().padStart(2, '0');
+                const m = (date.getMonth() + 1).toString().padStart(2, '0');
+                const y = date.getFullYear();
+                return `${d}-${m}-${y}`;
+              })()
+              : 'Active'}
+          </span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>

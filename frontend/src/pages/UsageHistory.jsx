@@ -76,7 +76,7 @@ const UsageHistory = () => {
 
     return (
         <React.Fragment>
-                        <div className="page-container">
+            <div className="page-container">
                 {/* Page Header */}
                 <div className="page-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

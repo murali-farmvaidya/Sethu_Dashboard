@@ -49,6 +49,28 @@ class ExotelService {
             return null;
         }
     }
+    /**
+     * Fetch full call details for a given CallSid
+     * @param {string} callSid 
+     * @returns {Promise<object|null>}
+     */
+    async getCallDetails(callSid) {
+        if (!this.apiKey || !this.apiToken) return null;
+
+        try {
+            const auth = Buffer.from(`${this.apiKey}:${this.apiToken}`).toString('base64');
+            const url = `https://${this.subdomain}/v1/Accounts/${this.accountSid}/Calls/${callSid}.json`;
+
+            const response = await axios.get(url, {
+                headers: { 'Authorization': `Basic ${auth}` }
+            });
+
+            return response.data?.Call || null;
+        } catch (error) {
+            logger.error(`Failed to fetch Exotel details for ${callSid}: ${error.message}`);
+            return null;
+        }
+    }
 }
 
 module.exports = new ExotelService();

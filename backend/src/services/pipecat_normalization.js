@@ -469,21 +469,39 @@ function parseEventBasedLogs(logs, targetSessionId = null) {
  * Extract telephony metadata (CallSid, transport, etc.) from log line
  */
 function extractTelephonyMetadata(logMessage) {
-    // 1. Match "Call ID: [ID]"
-    const callIdMatch = logMessage.match(/Call ID:\s*([a-zA-Z0-9_-]+)/i);
-    // 2. Match "Auto-detected transport: [transport]"
-    const transportMatch = logMessage.match(/Auto-detected transport:\s*(\w+)/i);
-    // 3. Match from Parsed data: Data: {'stream_id': ..., 'call_id': '...'}
-    const callSidRegex = /'call_id':\s*['"]([a-zA-Z0-9_-]+)['"]/;
-    const callSidMatch = logMessage.match(callSidRegex);
-
-    // 4. Match Exotel account SID
-    const accountSidMatch = logMessage.match(/'account_sid':\s*['"]([^'"]+)['"]/);
+    // Standard patterns
+    const patterns = [
+        /Call ID:\s*([a-zA-Z0-9_-]+)/i,
+        /CallSid:\s*([a-zA-Z0-9_-]+)/i,
+        /sid:\s*([a-zA-Z0-9_-]+)/i,
+        /exotel_call_id:\s*([a-zA-Z0-9_-]+)/i,
+        /Conversation ID:\s*([a-zA-Z0-9_-]+)/i,
+        /'sid':\s*['"]([a-zA-Z0-9_-]+)['"]/,
+        /"sid":\s*"([a-zA-Z0-9_-]+)"/,
+        /'call_id':\s*['"]([a-zA-Z0-9_-]+)['"]/,
+        /"call_id":\s*"([a-zA-Z0-9_-]+)"/,
+        /'exid':\s*['"]([a-zA-Z0-9_-]+)['"]/,
+        /"exid":\s*"([a-zA-Z0-9_-]+)"/
+    ];
 
     const metadata = {};
-    if (callIdMatch) metadata.call_id = callIdMatch[1];
-    if (callSidMatch) metadata.call_id = callSidMatch[1]; // Prefer callSid if present
+    for (const pattern of patterns) {
+        const match = logMessage.match(pattern);
+        if (match && match[1]) {
+            // Basic validation for length to avoid false positives (most IDs are 20+ chars)
+            if (match[1].length > 10) {
+                metadata.call_id = match[1];
+                break;
+            }
+        }
+    }
+
+    // Transport detection
+    const transportMatch = logMessage.match(/Auto-detected transport:\s*(\w+)/i);
     if (transportMatch) metadata.transport = transportMatch[1].toLowerCase();
+
+    // Account SID
+    const accountSidMatch = logMessage.match(/'account_sid':\s*['"]([^'"]+)['"]/);
     if (accountSidMatch) metadata.account_sid = accountSidMatch[1];
 
     return Object.keys(metadata).length > 0 ? metadata : null;

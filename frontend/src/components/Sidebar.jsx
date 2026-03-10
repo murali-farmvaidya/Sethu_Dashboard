@@ -1,14 +1,15 @@
-import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import React, { useState } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, Users, UserCog, CreditCard,
-    PieChart, TrendingUp, Key, FileText, ClipboardList, Wallet, List, PlusCircle, Settings, Activity
+    PieChart, TrendingUp, Key, FileText, ClipboardList, Wallet, List, PlusCircle, Settings, Activity, ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './Sidebar.css';
 
 export default function Sidebar({ isOpen, setIsOpen }) {
     const location = useLocation();
+    const navigate = useNavigate();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
     const isRootMaster = user?.id === 'master_root_0';
@@ -71,34 +72,64 @@ export default function Sidebar({ isOpen, setIsOpen }) {
 
     const sections = isAdmin ? adminSections : userSections;
 
+    // All sections open by default — user can collapse any section
+    const [openSections, setOpenSections] = useState(
+        () => Object.fromEntries(sections.map(s => [s.id, true]))
+    );
+
+    const toggleSection = (id) => {
+        setOpenSections(prev => ({ ...prev, [id]: !prev[id] }));
+    };
+
     return (
         <div className={`sidebar-container ${isOpen ? 'open' : 'closed'}`}>
-            <div className="sidebar-logo-container" style={{ padding: '20px', display: 'flex', justifyContent: 'center' }}>
+            {/* Clickable logo → home */}
+            <div
+                className="sidebar-logo-container"
+                style={{ padding: '20px', display: 'flex', justifyContent: 'center', cursor: 'pointer' }}
+                onClick={() => navigate(isAdmin ? '/admin' : '/')}
+                title="Go to Home"
+            >
                 <img src="/logo.png" alt="Company Logo" style={{ height: '40px', maxWidth: '100%', objectFit: 'contain' }} />
             </div>
 
             <nav className="sidebar-nav">
                 {sections.map(section => (
                     <div key={section.id} className="sidebar-section">
-                        <div className="sidebar-section-header always-open">
+                        {/* Collapsible section header */}
+                        <button
+                            className={`sidebar-section-header ${openSections[section.id] ? 'is-open' : ''}`}
+                            onClick={() => toggleSection(section.id)}
+                        >
                             <div className="section-title">
                                 {section.icon}
                                 <span className="section-label">{section.label}</span>
                             </div>
-                        </div>
+                            <div className="section-chevron">
+                                <ChevronDown
+                                    size={14}
+                                    style={{
+                                        transition: 'transform 0.2s',
+                                        transform: openSections[section.id] ? 'rotate(0deg)' : 'rotate(-90deg)',
+                                    }}
+                                />
+                            </div>
+                        </button>
 
-                        <div className="sidebar-subitems show-all">
-                            {section.subItems.map(item => (
-                                <NavLink
-                                    key={item.path}
-                                    to={item.path}
-                                    end={item.exact}
-                                    className={({ isActive }) => `sidebar-subitem ${isActive ? 'active' : ''}`}
-                                >
-                                    {item.label}
-                                </NavLink>
-                            ))}
-                        </div>
+                        {openSections[section.id] && (
+                            <div className="sidebar-subitems show-all">
+                                {section.subItems.map(item => (
+                                    <NavLink
+                                        key={item.path}
+                                        to={item.path}
+                                        end={item.exact}
+                                        className={({ isActive }) => `sidebar-subitem ${isActive ? 'active' : ''}`}
+                                    >
+                                        {item.label}
+                                    </NavLink>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 ))}
             </nav>

@@ -1,9 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import api from '../services/api';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, Bot, Download, Copy, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Tag, Edit2, Save, X, AlertCircle } from 'lucide-react';
+import { ArrowLeft, User, Bot, Download, Copy, Check, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Tag, Edit2, Save, X, AlertCircle, Phone, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+
+// Global caches for metadata to persist across session navigations
+const sessionMetadataCache = {}; // cleanPhone -> data
+const sessionMetadataPending = {}; // cleanPhone -> Promise
 
 export default function SessionDetails() {
     const { sessionId } = useParams();
@@ -37,6 +41,12 @@ export default function SessionDetails() {
     const [editSessionData, setEditSessionData] = useState({});
     const [savingSession, setSavingSession] = useState(false);
 
+    // Phone metadata state
+    const [numberMetadata, setNumberMetadata] = useState(null);
+    const [fetchingMetadata, setFetchingMetadata] = useState(false);
+    const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+    const statusDropdownRef = useRef(null);
+
     // Close dropdowns on outside click
     const downloadRef = useRef(null);
 
@@ -44,6 +54,9 @@ export default function SessionDetails() {
         const handleOutside = (e) => {
             if (downloadRef.current && !downloadRef.current.contains(e.target)) {
                 setDownloadOpen(false);
+            }
+            if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target)) {
+                setStatusDropdownOpen(false);
             }
         };
         document.addEventListener('mousedown', handleOutside);
@@ -53,7 +66,7 @@ export default function SessionDetails() {
     useEffect(() => {
         fetchData(true);
         fetchSiblings();
-        const interval = setInterval(() => { fetchData(false); }, 5000);
+        const interval = setInterval(() => { fetchData(false); }, 30000);
         return () => clearInterval(interval);
     }, [sessionId]);
 
@@ -72,17 +85,85 @@ export default function SessionDetails() {
         } catch (err) { console.error('Failed to fetch siblings:', err); }
     };
 
+    const fetchNumberMetadata = async (phone) => {
+        if (!phone) return;
+        const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+        if (!cleanPhone || cleanPhone.length < 10) return;
+
+        // Check global cache
+        if (cleanPhone in sessionMetadataCache) {
+            setNumberMetadata(sessionMetadataCache[cleanPhone]);
+            return;
+        }
+
+        // Deduplicate in-flight globally
+        if (!sessionMetadataPending[cleanPhone]) {
+            sessionMetadataPending[cleanPhone] = api.get(`telephony/number-metadata/${cleanPhone}`)
+                .then(res => {
+                    const data = res.data?.Numbers || null;
+                    sessionMetadataCache[cleanPhone] = data; // Cache success/fail
+                    return data;
+                })
+                .catch(() => {
+                    sessionMetadataCache[cleanPhone] = null; // Prevent retry on error
+                    return null;
+                })
+                .finally(() => {
+                    delete sessionMetadataPending[cleanPhone];
+                });
+        }
+
+        setFetchingMetadata(true);
+        try {
+            const data = await sessionMetadataPending[cleanPhone];
+            setNumberMetadata(data);
+        } catch (err) {
+            console.error('Failed to resolve metadata:', err);
+        } finally {
+            setFetchingMetadata(false);
+        }
+    };
+
     const fetchData = async (showLoading = true) => {
         if (showLoading) setLoading(true);
         try {
             try {
                 const sessRes = await api.get(`session/${sessionId}`);
+                const sessionData = sessRes.data;
                 setSession(prev => {
-                    if (prev && prev.recordingUrl === sessRes.data.recordingUrl) {
-                        return { ...sessRes.data, recordingUrl: prev.recordingUrl };
+                    if (prev && prev.recordingUrl === sessionData.recordingUrl) {
+                        return { ...sessionData, recordingUrl: prev.recordingUrl };
                     }
-                    return sessRes.data;
+                    return sessionData;
                 });
+
+                // Extract phone number for metadata fetching
+                let cData = sessionData.metadata?.custom_data || sessionData.custom_data;
+                if (typeof cData === 'string' && cData.startsWith('{')) {
+                    try { cData = JSON.parse(cData); } catch (e) { }
+                }
+                let phone = sessionData.phone || sessionData.customer_phone || (typeof cData === 'object' ? (cData?.phone || cData?.customer_number || (cData?.telephony?.from) || cData?.number) : '');
+
+                // Fallback: Fetch from Exotel if CallSid exists but phone is missing
+                if (!phone) {
+                    const callId = sessionData.metadata?.telephony?.call_id;
+                    if (callId) {
+                        try {
+                            const callRes = await api.get(`telephony/call-details/${callId}`);
+                            if (callRes.data?.Call?.From) {
+                                phone = callRes.data.Call.From;
+                                // Update session locally so UI reflects it immediately
+                                setSession(prev => ({ ...prev, phone: phone }));
+                            }
+                        } catch (err) {
+                            console.error('Failed to fetch call details from Exotel:', err);
+                        }
+                    }
+                }
+
+                if (phone) {
+                    fetchNumberMetadata(phone);
+                }
             } catch (sessErr) { console.error('Error fetching session:', sessErr); }
 
             try {
@@ -119,7 +200,12 @@ export default function SessionDetails() {
 
     const formatDateTime = (dateStr) => {
         if (!dateStr) return '-';
-        return new Date(dateStr).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+        const date = new Date(dateStr);
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const year = date.getFullYear();
+        const time = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        return `${day}-${month}-${year} ${time}`;
     };
     const formatTime = (dateStr) => {
         if (!dateStr) return '';
@@ -127,7 +213,11 @@ export default function SessionDetails() {
     };
     const formatDate = (dateStr) => {
         if (!dateStr) return '-';
-        return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const date = new Date(dateStr);
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const year = date.getFullYear();
+        return `${day}-${month}-${year}`;
     };
     const formatSecondsToTime = (seconds) => {
         if (!seconds && seconds !== 0) return '-';
@@ -271,8 +361,27 @@ export default function SessionDetails() {
                         <ArrowLeft size={18} />
                     </button>
                     <div>
-                        <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text)', margin: 0 }}>Session {sessionId?.slice(-6)}</h2>
-                        <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontFamily: 'monospace' }}>Full ID: {sessionId}</span>
+                        <h2 style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text)', margin: 0 }}>
+                            {(() => {
+                                let cData = session?.metadata?.custom_data || session?.custom_data;
+                                if (typeof cData === 'string' && cData.startsWith('{')) {
+                                    try { cData = JSON.parse(cData); } catch (e) { }
+                                }
+                                return session?.phone || session?.customer_phone || (typeof cData === 'object' ? (cData?.phone || cData?.customer_number || (cData?.telephony?.from) || cData?.number) : '') || 'Session Details';
+                            })()}
+                        </h2>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginTop: '2px' }}>
+                            <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontFamily: 'monospace', background: '#f1f5f9', padding: '1px 7px', borderRadius: '4px' }}>
+                                {sessionId}
+                            </span>
+                            {numberMetadata && (
+                                <span style={{ fontSize: '0.78rem', color: '#475569', fontWeight: '600' }}>
+                                    {numberMetadata.CircleName
+                                        ? <>{numberMetadata.CircleName} <span style={{ color: '#94a3b8', fontWeight: '500' }}>({numberMetadata.Circle})</span></>
+                                        : numberMetadata.Circle}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -379,45 +488,147 @@ export default function SessionDetails() {
                                 )}
                             </div>
 
-                            {/* Status Card */}
-                            <div style={{ background: 'white', borderRadius: '16px', padding: '1.5rem', border: '1px solid var(--border)', boxShadow: '0 4px 15px rgba(0,0,0,0.03)' }}>
-                                <h3 style={{ color: 'var(--primary)', fontSize: '1rem', fontWeight: '800', margin: '0 0 1rem 0' }}>Review Status</h3>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1rem' }}>
-                                    {[
-                                        { id: 'pending', label: 'Pending', icon: '📋' },
-                                        { id: 'needs_review', label: 'Needs Review', icon: '⚠️' },
-                                        { id: 'completed', label: 'Completed', icon: '✅' }
-                                    ].map(opt => {
-                                        const isSelected = reviewStatus === opt.id;
-                                        return (
-                                            <button
-                                                key={opt.id}
-                                                onClick={() => handleStatusChange(opt.id)}
-                                                disabled={updatingStatus}
-                                                style={{
-                                                    padding: '8px 16px',
-                                                    borderRadius: '10px',
-                                                    border: isSelected ? 'none' : '1px solid #e2e8f0',
-                                                    background: isSelected ? (opt.id === 'completed' ? '#10b981' : (opt.id === 'needs_review' ? '#f59e0b' : '#64748b')) : 'white',
-                                                    color: isSelected ? 'white' : '#64748b',
-                                                    fontWeight: '700',
-                                                    fontSize: '0.85rem',
-                                                    cursor: updatingStatus ? 'not-allowed' : 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '6px',
-                                                    transition: 'all 0.2s',
-                                                    boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.1)' : 'none'
-                                                }}
-                                            >
-                                                <span>{opt.icon}</span> {opt.label}
-                                            </button>
-                                        );
-                                    })}
+                            {/* User Information & Status Card */}
+                            <div style={{ background: 'white', borderRadius: '16px', padding: '1.25rem', border: '1px solid var(--border)', boxShadow: '0 4px 15px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <h3 style={{ color: 'var(--primary)', fontSize: '0.9rem', fontWeight: '800', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <User size={16} /> User Information
+                                    </h3>
+
+                                    {/* Status Dropdown (Minimized) */}
+                                    <div className="status-dropdown" ref={statusDropdownRef} style={{ position: 'relative' }}>
+                                        <button
+                                            onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px',
+                                                padding: '4px 10px',
+                                                borderRadius: '8px',
+                                                border: '1px solid #e2e8f0',
+                                                background: 'white',
+                                                cursor: 'pointer',
+                                                fontSize: '0.75rem',
+                                                fontWeight: '700',
+                                                color: '#64748b',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: '8px',
+                                                height: '8px',
+                                                borderRadius: '50%',
+                                                background: reviewStatus === 'completed' ? '#10b981' : (reviewStatus === 'needs_review' ? '#f59e0b' : '#64748b')
+                                            }} />
+                                            {reviewStatus.charAt(0).toUpperCase() + reviewStatus.slice(1).replace('_', ' ')}
+                                            <ChevronDown size={14} style={{ transform: statusDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                                        </button>
+
+                                        {statusDropdownOpen && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: 'calc(100% + 4px)',
+                                                right: 0,
+                                                background: 'white',
+                                                border: '1px solid #e2e8f0',
+                                                borderRadius: '10px',
+                                                boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+                                                zIndex: 50,
+                                                minWidth: '160px',
+                                                overflow: 'hidden'
+                                            }}>
+                                                {[
+                                                    { id: 'pending', label: 'Pending', icon: '📋' },
+                                                    { id: 'needs_review', label: 'Needs Review', icon: '⚠️' },
+                                                    { id: 'completed', label: 'Completed', icon: '✅' }
+                                                ].map(opt => (
+                                                    <button
+                                                        key={opt.id}
+                                                        onClick={() => {
+                                                            handleStatusChange(opt.id);
+                                                            setStatusDropdownOpen(false);
+                                                        }}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '10px 15px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '10px',
+                                                            border: 'none',
+                                                            background: reviewStatus === opt.id ? '#f8fafc' : 'white',
+                                                            cursor: 'pointer',
+                                                            fontSize: '0.85rem',
+                                                            textAlign: 'left',
+                                                            color: reviewStatus === opt.id ? 'var(--primary)' : '#475569',
+                                                            fontWeight: reviewStatus === opt.id ? '700' : '500',
+                                                            transition: 'background 0.2s'
+                                                        }}
+                                                    >
+                                                        <span>{opt.icon}</span> {opt.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                                    <div>
+                                        <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Mobile Number</div>
+                                        <div style={{ fontSize: '1rem', fontWeight: '700', color: '#1e293b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <Phone size={14} color="var(--primary)" />
+                                            {(() => {
+                                                let cData = session?.metadata?.custom_data || session?.custom_data;
+                                                if (typeof cData === 'string' && cData.startsWith('{')) {
+                                                    try { cData = JSON.parse(cData); } catch (e) { }
+                                                }
+                                                return session?.phone || session?.customer_phone || (typeof cData === 'object' ? (cData?.phone || cData?.customer_number || (cData?.telephony?.from) || cData?.number) : '') || '-';
+                                            })()}
+                                        </div>
+                                    </div>
+
+                                    {numberMetadata ? (
+                                        <>
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Circle</div>
+                                                <div style={{ fontSize: '0.9rem', fontWeight: '600', color: '#1e293b' }}>
+                                                    {numberMetadata.CircleName
+                                                        ? <>{numberMetadata.CircleName} <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>({numberMetadata.Circle})</span></>
+                                                        : numberMetadata.Circle || '-'}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Operator</div>
+                                                <div style={{ fontSize: '0.9rem', fontWeight: '600', color: '#1e293b' }}>{numberMetadata.Operator || '-'}</div>
+                                            </div>
+                                            <div>
+                                                <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>DND Status</div>
+                                                <div style={{ fontSize: '0.9rem', fontWeight: '800', color: numberMetadata.DND === 'Yes' ? '#ef4444' : '#10b981' }}>{numberMetadata.DND || '-'}</div>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8', fontSize: '0.8rem' }}>
+                                            {fetchingMetadata ? (
+                                                <><RefreshCw size={14} className="animate-spin" /> Fetching origin details...</>
+                                            ) : (
+                                                <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>State</div>
+                                                        <div style={{ color: '#cbd5e1' }}>-</div>
+                                                    </div>
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Location</div>
+                                                        <div style={{ color: '#cbd5e1' }}>-</div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
                                 {conversation?.reviewed_by && (
-                                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', background: '#f8fafc', padding: '10px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <Check size={14} /> Review by {conversation.reviewer_email || conversation.reviewed_by} on {formatDate(conversation.reviewed_at)}
+                                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', background: '#f8fafc', padding: '8px 12px', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Check size={12} /> Review by {conversation.reviewer_email || conversation.reviewed_by} on {formatDate(conversation.reviewed_at)}
                                     </div>
                                 )}
                             </div>
@@ -554,45 +765,46 @@ export default function SessionDetails() {
                                         ) : (
                                             <>
                                                 {turn.user_message && (
-                                                    <div style={{ display: 'flex', justifyContent: 'flex-start', maxWidth: '85%' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-start', maxWidth: '85%', gap: '12px', alignItems: 'flex-start' }}>
+                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexShrink: 0, marginTop: '4px' }}>
+                                                            <User size={18} />
+                                                        </div>
                                                         <div style={{
-                                                            background: 'white',
+                                                            background: '#f1f5f9',
                                                             color: '#1e293b',
-                                                            padding: '1.25rem 1.75rem',
-                                                            borderRadius: '0 24px 24px 24px',
-                                                            border: '1px solid #f1f5f9',
-                                                            boxShadow: '0 4px 6px rgba(0,0,0,0.02)',
+                                                            padding: '1rem 1.5rem',
+                                                            borderRadius: '0 20px 20px 20px',
+                                                            border: '1px solid #e2e8f0',
+                                                            boxShadow: '0 2px 5px rgba(0,0,0,0.02)',
                                                             position: 'relative'
                                                         }}>
-                                                            <div style={{ fontSize: '0.7rem', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                <User size={12} /> User Message
-                                                            </div>
-                                                            <div style={{ fontSize: '1rem', lineHeight: '1.6' }}>{turn.user_message}</div>
+                                                            <div style={{ fontSize: '0.95rem', lineHeight: '1.6' }}>{turn.user_message}</div>
                                                         </div>
                                                     </div>
                                                 )}
                                                 {turn.assistant_message && (
-                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginLeft: 'auto', maxWidth: '85%', marginTop: '4px' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginLeft: 'auto', maxWidth: '85%', gap: '12px', alignItems: 'flex-start', marginTop: '8px' }}>
                                                         <div style={{
                                                             background: 'linear-gradient(135deg, #008F4B 0%, #006b38 100%)',
                                                             color: 'white',
-                                                            padding: '1.25rem 1.75rem',
-                                                            borderRadius: '24px 0 24px 24px',
-                                                            boxShadow: '0 8px 20px rgba(0,143,75,0.15)',
-                                                            position: 'relative'
+                                                            padding: '1rem 1.5rem',
+                                                            borderRadius: '20px 0 20px 20px',
+                                                            boxShadow: '0 8px 16px rgba(0,143,75,0.12)',
+                                                            position: 'relative',
+                                                            order: 1
                                                         }}>
-                                                            <div style={{ fontSize: '0.7rem', fontWeight: '800', color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                <Bot size={12} /> FarmVaidya AI
-                                                            </div>
-                                                            <div style={{ fontSize: '1rem', lineHeight: '1.6' }}>{turn.assistant_message}</div>
+                                                            <div style={{ fontSize: '0.95rem', lineHeight: '1.6' }}>{turn.assistant_message}</div>
                                                             {isMaster && (
                                                                 <button
                                                                     onClick={() => startEditTurn(index)}
-                                                                    style={{ position: 'absolute', right: '1rem', top: '1rem', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '4px', borderRadius: '6px', cursor: 'pointer' }}
+                                                                    style={{ position: 'absolute', right: '0.5rem', top: '0.5rem', background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '4px', borderRadius: '6px', cursor: 'pointer' }}
                                                                 >
-                                                                    <Edit2 size={12} />
+                                                                    <Edit2 size={10} />
                                                                 </button>
                                                             )}
+                                                        </div>
+                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(0,143,75,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', flexShrink: 0, marginTop: '4px', order: 2 }}>
+                                                            <Bot size={18} />
                                                         </div>
                                                     </div>
                                                 )}

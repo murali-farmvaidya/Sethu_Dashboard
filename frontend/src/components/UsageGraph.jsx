@@ -101,8 +101,8 @@ export default function UsageGraph({ userId }) {
     }
 
     return (
-        <div style={{ background: 'white', borderRadius: '24px', padding: '2rem', border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1.5rem' }}>
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', padding: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1.5rem' }}>
                 <div>
                     <h2 style={{ fontSize: '1.25rem', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text)' }}>
                         <TrendingUp size={22} color="var(--primary)" /> Usage Analytics
@@ -156,7 +156,7 @@ export default function UsageGraph({ userId }) {
                 </div>
             )}
 
-            <div style={{ width: '100%', height: 320, marginTop: '1rem' }}>
+            <div style={{ width: '100%', height: '320px', marginTop: '0.75rem', position: 'relative' }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                         <defs>

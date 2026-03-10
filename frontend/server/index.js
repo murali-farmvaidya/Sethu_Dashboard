@@ -74,7 +74,7 @@ const exotelConfig = {
     apiKey: (process.env.EXOTEL_API_KEY || '').trim(),
     apiToken: (process.env.EXOTEL_API_TOKEN || '').trim(),
     accountSid: (process.env.EXOTEL_ACCOUNT_SID || 'farmvaidya1').trim(),
-    subdomain: (process.env.EXOTEL_SUBDOMAIN || 'api.exotel.com').trim()
+    subdomain: (process.env.EXOTEL_SUBDOMAIN || 'api.exotel.com').trim().replace(/^@/, '')
 };
 
 const getExotelRecordingUrl = async (callSid, returnFull = false) => {
@@ -402,6 +402,15 @@ const initDatabase = async () => {
             console.log('✅ Indices verified');
         } catch (idxErr) {
             console.warn('⚠️ Index creation warning:', idxErr.message);
+        }
+
+        // Add caller_info JSONB column to Sessions for caching phone metadata
+        try {
+            await pool.query(`ALTER TABLE "${getTableName('Sessions')}" ADD COLUMN IF NOT EXISTS caller_info JSONB`);
+            await pool.query(`ALTER TABLE "${getTableName('Sessions')}" ADD COLUMN IF NOT EXISTS customer_phone TEXT`);
+            console.log('✅ Sessions.caller_info and customer_phone columns ensured');
+        } catch (callerErr) {
+            console.warn('⚠️ caller_info column:', callerErr.message);
         }
 
         // --- NEW BILLING TABLES ---
@@ -1288,7 +1297,7 @@ app.get('/api/active-sessions', async (req, res) => {
 
 // Get Sessions for Agent
 app.get('/api/sessions', async (req, res) => {
-    const { agent_id, page = 1, limit = 10, sortBy = 'session_id', sortOrder = 'desc', search = '' } = req.query;
+    const { agent_id, page = 1, limit = 10, sortBy = 'started_at', sortOrder = 'desc', search = '', review_status = '', startDate = '', endDate = '' } = req.query;
     if (!agent_id) return res.status(400).json({ error: "Agent ID required" });
 
     try {
@@ -1298,8 +1307,9 @@ app.get('/api/sessions', async (req, res) => {
         const dbSortOrder = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
         // Join with Conversations to get summary and review status, and Users to get reviewer email
+        // DISTINCT ON prevents duplicate rows when a session has multiple Conversation records
         let query = `
-            SELECT s.*, c.summary, c.review_status, c.reviewed_by, c.reviewed_at, u.email as reviewer_email
+            SELECT DISTINCT ON (s.session_id) s.*, c.summary, c.review_status, c.reviewed_by, c.reviewed_at, u.email as reviewer_email
             FROM "${getTableName('Sessions')}" s 
             LEFT JOIN "${getTableName('Conversations')}" c ON s.session_id = c.session_id
             LEFT JOIN "${getTableName('Users')}" u ON c.reviewed_by = u.user_id
@@ -1315,20 +1325,63 @@ app.get('/api/sessions', async (req, res) => {
         if (search) {
             paramCount++;
             query += ` AND (
-                s.session_id ILIKE $${paramCount} 
+                s.session_id ILIKE $${paramCount}
                 OR s.metadata->'telephony'->>'call_id' ILIKE $${paramCount}
                 OR s.metadata->'telephony'->>'match_number' ILIKE $${paramCount}
-                -- Attempt to search JSON fields if they exist as text for robustness
                 OR s.metadata::text ILIKE $${paramCount}
+                OR s.customer_phone ILIKE $${paramCount}
+                OR s.caller_info->>'phone' ILIKE $${paramCount}
+                OR s.caller_info->>'CircleName' ILIKE $${paramCount}
             )`;
             params.push(`%${search}%`);
         }
 
-        let hiddenFilter = (req.query.show_hidden !== 'true') ? ` AND (is_hidden IS NULL OR is_hidden = FALSE)` : '';
-        const searchFilter = search
-            ? `AND (session_id ILIKE $2 OR metadata->'telephony'->>'call_id' ILIKE $2 OR metadata::text ILIKE $2)`
-            : '';
-        const countQuery = `SELECT COUNT(*) FROM "${getTableName('Sessions')}" WHERE agent_id = $1 ${hiddenFilter} ${searchFilter}`;
+        // Review status filter
+        if (review_status && review_status !== 'all') {
+            paramCount++;
+            query += ` AND c.review_status = $${paramCount}`;
+            params.push(review_status);
+        }
+
+        // Date range filter — compare using IST (Asia/Kolkata) so midnight boundary is correct
+        if (startDate) {
+            paramCount++;
+            query += ` AND (s.started_at AT TIME ZONE 'Asia/Kolkata')::date >= $${paramCount}::date`;
+            params.push(startDate);
+        }
+        if (endDate) {
+            paramCount++;
+            query += ` AND (s.started_at AT TIME ZONE 'Asia/Kolkata')::date <= $${paramCount}::date`;
+            params.push(endDate);
+        }
+
+        // Build count query with same filters
+        let countQuery = `SELECT COUNT(*) FROM "${getTableName('Sessions')}" s LEFT JOIN "${getTableName('Conversations')}" c ON s.session_id = c.session_id WHERE s.agent_id = $1`;
+        let countParams = [agent_id];
+        let countParamIdx = 1;
+        if (req.query.show_hidden !== 'true') {
+            countQuery += ` AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)`;
+        }
+        if (search) {
+            countParamIdx++;
+            countQuery += ` AND (s.session_id ILIKE $${countParamIdx} OR s.customer_phone ILIKE $${countParamIdx} OR s.caller_info->>'phone' ILIKE $${countParamIdx} OR s.metadata::text ILIKE $${countParamIdx})`;
+            countParams.push(`%${search}%`);
+        }
+        if (review_status && review_status !== 'all') {
+            countParamIdx++;
+            countQuery += ` AND c.review_status = $${countParamIdx}`;
+            countParams.push(review_status);
+        }
+        if (startDate) {
+            countParamIdx++;
+            countQuery += ` AND (s.started_at AT TIME ZONE 'Asia/Kolkata')::date >= $${countParamIdx}::date`;
+            countParams.push(startDate);
+        }
+        if (endDate) {
+            countParamIdx++;
+            countQuery += ` AND (s.started_at AT TIME ZONE 'Asia/Kolkata')::date <= $${countParamIdx}::date`;
+            countParams.push(endDate);
+        }
 
         // Agent specific stats query
         const agentStatsQuery = `
@@ -1342,12 +1395,20 @@ app.get('/api/sessions', async (req, res) => {
             WHERE agent_id = $1
         `;
 
-        query += ` ORDER BY s."${sortBy}" ${dbSortOrder} LIMIT $${paramCount + 1} OFFSET $${paramCount + 2} `;
+        // Wrap in subquery: DISTINCT ON inside, user's real sort outside
+        // This is required because DISTINCT ON forces ORDER BY s.session_id first,
+        // which would override the user's chosen sort if done in one query.
+        const innerQuery = query + ` ORDER BY s.session_id`;
+        const outerQuery = `
+            SELECT * FROM (${innerQuery}) sub
+            ORDER BY sub."${sortBy}" ${dbSortOrder}
+            LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+        `;
         params.push(limitNum, offset);
 
         const [dataRes, countRes] = await Promise.all([
-            pool.query(query, params),
-            pool.query(countQuery, params.slice(0, paramCount))
+            pool.query(outerQuery, params),
+            pool.query(countQuery, countParams)
         ]);
 
         let totalAgentSessions = 0;
@@ -1389,6 +1450,25 @@ app.get('/api/sessions', async (req, res) => {
     }
 });
 
+// Cache caller info for a session (saves Exotel metadata to DB)
+app.patch('/api/sessions/:sessionId/caller-info', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+    const { sessionId } = req.params;
+    const { caller_info, customer_phone } = req.body;
+    if (!caller_info && !customer_phone) return res.status(400).json({ error: 'caller_info or customer_phone required' });
+    try {
+        await pool.query(
+            `UPDATE "${getTableName('Sessions')}" SET caller_info = $1, customer_phone = COALESCE($2, customer_phone) WHERE session_id = $3`,
+            [caller_info ? JSON.stringify(caller_info) : null, customer_phone || null, sessionId]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Failed to update caller_info:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Generate Summary for a Session (on-demand)
 app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
     const { sessionId } = req.params;
@@ -1425,24 +1505,32 @@ app.post('/api/conversation/:sessionId/generate-summary', async (req, res) => {
             return text;
         }).join('\n---\n');
 
-        const systemPrompt = `You are a professional conversation summarizer.
+        const systemPrompt = `You are a professional conversation analyst who writes brief, user-focused summaries.
 
-            TASK:
-Summarize the conversation below in 50 words or less.
+TASK:
+Write a summary of the conversation below in 2-3 sentences, strictly under 60 words.
 
-LANGUAGE RULES(STRICT):
-        1. Detect the language used in the conversation.
-2. The summary MUST be written in the SAME language as the conversation.
-   - Conversation in English -> Summary in English.
-   - Conversation in Telugu -> Summary in Telugu(Telugu script).
-   - Conversation in Hindi -> Summary in Hindi(Devanagari script).
-3. DEFAULT: If you are unsure or if the conversation is in English, you MUST write the summary in English.
-4. Do NOT translate from one language to another.If the text is English, do NOT output Telugu.
+LANGUAGE RULE (NON-NEGOTIABLE):
+- Detect the language of the conversation and write the summary in THAT SAME language.
+- Telugu conversation → Telugu summary (Telugu script).
+- Hindi conversation → Hindi summary (Devanagari script).
+- English conversation → English summary.
+- Do NOT translate. Do NOT mix languages.
 
-            CONTENT:
-        - Briefly state the user's intent or problem.
-            - Briefly state the response or solution provided.
-- Keep it concise and under 50 words.`;
+FORMAT RULES:
+- Write from the USER's perspective and intent.
+- Sentence 1: What the user wanted to know or achieve (their goal/intent).
+- Sentence 2: What specific things they asked about or inquired (the key questions/topics).
+- Sentence 3 (optional): What was provided or resolved for the user.
+- Do NOT write generic "User asked about X, Assistant explained Y" topic lists.
+- DO write as a clear narrative of what the user was seeking and what they got.
+
+EXAMPLES (English):
+BAD: "User asked about fertilizer. Assistant explained product details, pricing, dosage."
+GOOD: "User wanted to understand Nakro Gold Biofertilizer before purchasing. They specifically asked about its microbial composition, pricing, dosage per acre, and soil health benefits. The assistant provided complete product details including pack sizes and recommended usage."
+
+BAD: "User asked to speak with another agent."
+GOOD: "User wanted to connect with a different agent but communicated in Telugu. Since the assistant only handles English, it requested the user to switch to English to continue."`;
 
         // Call AI Service
         const aiResponse = await axios.post(
@@ -1454,7 +1542,7 @@ LANGUAGE RULES(STRICT):
                     { role: 'system', content: systemPrompt },
                     { role: 'user', content: conversationText }
                 ],
-                max_tokens: 100,
+                max_tokens: 150,
                 temperature: 0.3
             },
             {
@@ -3326,6 +3414,100 @@ app.post('/api/sessions/:sessionId/restore', async (req, res) => {
 });
 
 
+
+
+// Get Number Metadata
+const metadataCache = new Map(); // number -> data
+const metadataPending = new Map(); // number -> Promise
+
+app.get('/api/telephony/number-metadata/:number', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    const number = req.params.number?.trim();
+    if (!number) return res.status(400).json({ error: 'Missing number' });
+
+    // 1. Check server-side cache
+    if (metadataCache.has(number)) {
+        return res.json(metadataCache.get(number));
+    }
+
+    // 2. Deduplicate in-flight requests
+    if (metadataPending.has(number)) {
+        try {
+            const data = await metadataPending.get(number);
+            return res.json(data);
+        } catch (err) {
+            return res.status(500).json({ error: err.message });
+        }
+    }
+
+    const { accountSid, apiKey, apiToken, subdomain } = exotelConfig;
+    if (!accountSid || !apiKey || !apiToken) {
+        return res.status(500).json({ error: 'Server telephony configuration error' });
+    }
+
+    const fetchPromise = (async () => {
+        const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
+        const url = `https://${subdomain}/v1/Accounts/${accountSid}/Numbers/${number}.json`;
+
+        // Silence noisy fetching logs for polling stability
+        const response = await axios.get(url, {
+            headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        const data = response.data;
+        metadataCache.set(number, data);
+        return data;
+    })();
+
+    metadataPending.set(number, fetchPromise);
+
+    try {
+        const data = await fetchPromise;
+        res.json(data);
+    } catch (error) {
+        console.error(`❌ Failed to fetch Exotel number metadata for ${number}: ${error.message}`);
+        res.status(error.response?.status || 500).json({
+            error: 'Failed to fetch number metadata',
+            details: error.response?.data || error.message
+        });
+    } finally {
+        metadataPending.delete(number);
+    }
+});
+
+// Get Call Details (to retrieve missing phone numbers)
+app.get('/api/telephony/call-details/:callSid', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    const { callSid } = req.params;
+    if (!callSid) return res.status(400).json({ error: 'Missing CallSid' });
+
+    const { accountSid, apiKey, apiToken, subdomain } = exotelConfig;
+    if (!accountSid || !apiKey || !apiToken) {
+        return res.status(500).json({ error: 'Server telephony configuration error' });
+    }
+
+    try {
+        const auth = Buffer.from(`${apiKey}:${apiToken}`).toString('base64');
+        const url = `https://${subdomain}/v1/Accounts/${accountSid}/Calls/${callSid}.json`;
+
+        console.log(`🔍 Fetching call details for: ${callSid}`);
+        const response = await axios.get(url, {
+            headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        res.json(response.data);
+    } catch (error) {
+        console.error(`❌ Failed to fetch Exotel call details for ${callSid}: ${error.message}`);
+        res.status(error.response?.status || 500).json({
+            error: 'Failed to fetch call details',
+            details: error.response?.data || error.message
+        });
+    }
+});
 
 // --- TELEPHONY (EXOTEL) ROUTES ---
 // Get Config
