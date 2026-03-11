@@ -4,6 +4,7 @@ const ExotelController = require('../controllers/ExotelController');
 
 // Exotel calls this
 router.post('/incoming', ExotelController.handleIncoming);
-router.post('/callback', ExotelController.handleStatusCallback); // Optional, for end-of-call logic
+router.post('/callback', ExotelController.handleStatusCallback);
+router.all('/passthru', ExotelController.handlePassthru); // Handle GET/POST
 
 module.exports = router;

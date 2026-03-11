@@ -62,20 +62,25 @@ async function notifyAdmin(admin, message) {
 // Helper: Get Admin by Exophone
 async function getAdminFromExophone(exophone) {
     if (!exophone) return null;
-    // Normalize exophone (remove leading + or 0 if needed, but usually exact match is best)
-    // Exotel sends e.g. "040..."
+    
+    // Normalize input exophone: remove common prefixes
+    const cleanNumber = exophone.replace(/^(\+91|91|0)/, '');
+    
+    console.log(`🔍 Mapping Exophone: ${exophone} (Cleaned: ${cleanNumber})`);
 
-    // Find Agent first, then find Admin user linked to it
     const res = await pool.query(`
-        SELECT u.*, atc.app_id
+        SELECT u.*, atc.app_id, atc.agent_id
         FROM "${getTableName('Agent_Telephony_Config')}" atc
         JOIN "${getTableName('User_Agents')}" ua ON atc.agent_id = ua.agent_id
         JOIN "${getTableName('Users')}" u ON ua.user_id = u.user_id
-        WHERE atc.exophone = $1
+        WHERE atc.exophone = $1 
+           OR atc.exophone = $2
+           OR atc.exophone LIKE '%' || $2
+           OR $1 LIKE '%' || atc.exophone
         ORDER BY 
             CASE WHEN u.role = 'super_admin' THEN 1 WHEN u.role = 'admin' THEN 2 ELSE 3 END
         LIMIT 1
-    `, [exophone]);
+    `, [exophone, cleanNumber]);
 
     return res.rows[0];
 }
@@ -266,7 +271,7 @@ export const handleStatusCallback = async (req, res) => {
 
     if (terminalStatuses.includes(Status)) {
         try {
-            // 1. Try finding call in ActiveCalls (Typically Incoming)
+            // ... existing logic ...
             const callRes = await pool.query(
                 `SELECT * FROM "${getTableName('ActiveCalls')}" WHERE call_sid = $1`,
                 [CallSid]
@@ -274,37 +279,57 @@ export const handleStatusCallback = async (req, res) => {
             let call = callRes.rows[0];
             let userId = call?.user_id;
 
-            // 2. If not in ActiveCalls, check if it's an Outgoing call from our User
-            // Outgoing calls: 'From' should be one of our Exophones
             if (!userId) {
-                // Remove leading + if present for matching (Exotel format varies)
-                // Actually Exotel sends e.g. 040... or +91...
-                // Our DB stores exophones. We should try exact match or partial.
-                // Best effort: Check if 'From' matches any Agent_Telephony_Config exophone
-
-                // We need to find the OWNER of this exophone.
-                // Assuming One Admin -> Multiple Agents -> One Exophone per Agent (or shared)
-
                 const exophoneRes = await pool.query(`
                     SELECT u.user_id 
                     FROM "${getTableName('Agent_Telephony_Config')}" atc
                     JOIN "${getTableName('User_Agents')}" ua ON atc.agent_id = ua.agent_id
                     JOIN "${getTableName('Users')}" u ON ua.user_id = u.user_id
-                    WHERE atc.exophone = $1 OR atc.exophone = $2
+                    WHERE atc.exophone = $1 OR atc.exophone = $2 OR atc.exophone LIKE '%' || $2
                     LIMIT 1
-                `, [From, From.replace(/^\+/, '')]);
+                `, [From, From.replace(/^(\+91|91|0)/, '')]);
 
                 if (exophoneRes.rows[0]) {
                     userId = exophoneRes.rows[0].user_id;
-                    console.log(`📡 Identified Outgoing Call owner: ${userId} (From: ${From})`);
                 }
             }
 
             if (userId) {
-                const durationMinutes = Math.ceil((parseInt(Duration) || 0) / 60);
+            const durationSeconds = parseInt(Duration) || 0;
+            const durationMinutes = Math.ceil(durationSeconds / 60);
+            
+            // LOG AS MISSED if duration is 0 and it's an inbound call
+            const isActuallyMissed = (durationSeconds === 0 && terminalStatuses.includes(Status)) || 
+                                     ['failed', 'busy', 'no-answer', 'canceled'].includes(Status?.toLowerCase());
 
-                if (durationMinutes > 0) {
-                    // Determine Billable User (Parent Admin inheritance)
+            if (isActuallyMissed) {
+                const admin = await pool.query(`
+                    SELECT agent_id FROM "${getTableName('Agent_Telephony_Config')}" 
+                    WHERE exophone = $1 OR exophone = $2 OR exophone LIKE '%' || $2
+                    LIMIT 1
+                `, [To, To.replace(/^(\+91|91|0)/, '')]);
+
+                await pool.query(
+                    `INSERT INTO "${getTableName('MissedCalls')}" (
+                        user_id, agent_id, call_sid, from_number, to_number, 
+                        status, detailed_status, error_message,
+                        timestamp, created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
+                    ON CONFLICT (call_sid) DO NOTHING`,
+                    [
+                        userId,
+                        admin.rows[0]?.agent_id || null,
+                        CallSid,
+                        From,
+                        To,
+                        Status,
+                        params.DetailedStatus || 'Zero Duration',
+                        params.ErrorMessage || null
+                    ]
+                );
+            }
+
+            if (durationMinutes > 0) {
                     const uRes = await pool.query(`SELECT role, created_by FROM "${getTableName('Users')}" WHERE user_id = $1`, [userId]);
                     const u = uRes.rows[0];
                     let billableUserId = userId;
@@ -313,56 +338,30 @@ export const handleStatusCallback = async (req, res) => {
                         billableUserId = u.created_by;
                     }
 
-                    // SKip deduction for Super Admin or Master
                     const isExempt = u.role === 'super_admin' || userId === 'master_root_0';
 
                     if (!isExempt) {
                         const creditsToDeduct = parseFloat((durationMinutes * 3.5).toFixed(2));
-                        const updateRes = await pool.query(
-                            `UPDATE "${getTableName('Users')}" SET minutes_balance = ROUND((minutes_balance - $1)::numeric, 2), updated_at = NOW() WHERE user_id = $2 RETURNING minutes_balance, low_balance_threshold, email, last_low_credit_alert, role`,
+                        await pool.query(
+                            `UPDATE "${getTableName('Users')}" SET minutes_balance = ROUND((minutes_balance - $1)::numeric, 2), updated_at = NOW() WHERE user_id = $2`,
                             [creditsToDeduct, billableUserId]
                         );
-
-                        if (updateRes.rows.length > 0) {
-                            const adminUser = updateRes.rows[0];
-                            const threshold = adminUser.low_balance_threshold || 50;
-
-                            if (adminUser.minutes_balance <= threshold && adminUser.role !== 'user') {
-                                console.log(`🔔 Low Balance Call Alert triggered for ${adminUser.email} (Balance: ${adminUser.minutes_balance})`);
-
-                                const message = adminUser.minutes_balance <= 0
-                                    ? "You are receiving calls but your balance is zero. Please recharge immediately to avoid service interruption."
-                                    : "You are receiving calls but you are getting low with the balance please recharge.";
-
-                                // Create Notification unconditionally on every call
-                                await pool.query(
-                                    `INSERT INTO "${getTableName('Notifications')}" (user_id, type, title, message) VALUES ($1, $2, $3, $4)`,
-                                    [
-                                        billableUserId,
-                                        'low_balance_call',
-                                        'Call While Balance Low',
-                                        message
-                                    ]
-                                ).catch(err => console.error('Failed to create notification:', err));
-                            }
-                        }
                     }
 
-                    // Enhanced Usage Logging
-                    // Standardize Direction: 'inbound' or 'outbound'
-                    // Exotel sends: 'inbound' for incoming.
-                    // For outgoing, it might be 'outbound-dial' or similar.
-                    let stdDirection = Direction || (call ? 'inbound' : 'outbound');
+                    // Better Direction Detection: If To is an exophone, it's inbound
+                    const atcCheck = await pool.query(`SELECT 1 FROM "${getTableName('Agent_Telephony_Config')}" WHERE exophone = $1 OR exophone = $2 OR exophone LIKE '%' || $2 LIMIT 1`, [To, To.replace(/^(\+91|91|0)/, '')]);
+                    let stdDirection = Direction || (atcCheck.rows.length > 0 ? 'inbound' : (call ? 'inbound' : 'outbound'));
 
                     await pool.query(
                         `INSERT INTO "${getTableName('UsageLogs')}" (
                             id, user_id, call_sid, minutes_used, timestamp, 
                             direction, from_number, to_number, call_status, recording_url, 
                             created_at, updated_at
-                        ) VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8, $9, NOW(), NOW())`,
+                        ) VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8, $9, NOW(), NOW())
+                        ON CONFLICT (call_sid) DO NOTHING`,
                         [
                             crypto.randomUUID(),
-                            userId, // Activity Owner 
+                            userId, 
                             CallSid,
                             durationMinutes,
                             stdDirection,
@@ -374,12 +373,9 @@ export const handleStatusCallback = async (req, res) => {
                     );
                 }
 
-                // Cleanup ActiveCall if it existed
                 if (call) {
                     await pool.query(`DELETE FROM "${getTableName('ActiveCalls')}" WHERE call_sid = $1`, [CallSid]);
                 }
-            } else {
-                console.warn(`⚠️ Unaccounted Call ${CallSid} (From: ${From}, To: ${To}) - No user found.`);
             }
         } catch (err) {
             console.error('Error in status callback:', err);
@@ -387,4 +383,62 @@ export const handleStatusCallback = async (req, res) => {
     }
 
     res.send('OK');
+};
+
+/**
+ * Handle Passthru Applet data from Exotel
+ * Captures missed calls and stream errors
+ */
+export const handlePassthru = async (req, res) => {
+    const params = { ...req.query, ...req.body };
+    const { CallSid, From, To, Status, DetailedStatus, Stream } = params;
+
+    try {
+        const admin = await getAdminFromExophone(To);
+        const userId = admin?.user_id;
+
+        let streamData = {};
+        if (typeof Stream === 'string' && Stream.startsWith('{')) {
+            try { streamData = JSON.parse(Stream); } catch (e) { }
+        } else if (typeof Stream === 'object') {
+            streamData = Stream;
+        }
+
+        const currentStatus = Status || streamData.Status || params['Stream[Status]'] || params['Status'];
+        const currentDetailedStatus = DetailedStatus || streamData.DetailedStatus || params['Stream[DetailedStatus]'] || params['DetailedStatus'];
+
+        const isMissed = ['failed', 'busy', 'no-answer', 'canceled'].includes(currentStatus?.toLowerCase()) || 
+                         (currentDetailedStatus && (
+                             currentDetailedStatus.toLowerCase().includes('throttle') || 
+                             currentDetailedStatus.toLowerCase().includes('hung-up') ||
+                             currentDetailedStatus.toLowerCase().includes('failed')
+                         )) ||
+                         (currentStatus?.toLowerCase() === 'failed');
+
+        if (isMissed) {
+            await pool.query(
+                `INSERT INTO "${getTableName('MissedCalls')}" (
+                    user_id, agent_id, call_sid, from_number, to_number, 
+                    status, detailed_status, error_message,
+                    timestamp, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
+                ON CONFLICT (call_sid) DO NOTHING`,
+                [
+                    userId,
+                    admin?.agent_id || null,
+                    CallSid,
+                    From,
+                    To,
+                    currentStatus,
+                    currentDetailedStatus,
+                    params.ErrorMessage || streamData.ErrorMessage || null
+                ]
+            );
+        }
+
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error('Error in handlePassthru:', error);
+        res.status(200).send('OK');
+    }
 };

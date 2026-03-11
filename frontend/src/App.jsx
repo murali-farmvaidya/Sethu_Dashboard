@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -20,6 +20,8 @@ import PaymentHistory from './pages/PaymentHistory';
 import AdminTools from './pages/AdminTools';
 import Plans from './pages/Plans';
 import Bills from './pages/Bills';
+import Campaigns from './pages/Campaigns';
+import MissedCalls from './pages/MissedCalls';
 
 import Header from './components/Header';
 import MainLayout from './components/MainLayout';
@@ -76,6 +78,8 @@ function AppRoutes() {
         <Route path="/user/agent/:agentId" element={<AgentDetails />} />
         <Route path="/user/session/:sessionId" element={<SessionDetails />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/campaigns" element={<Campaigns />} />
+        <Route path="/missed-calls" element={<MissedCalls />} />
         <Route path="/" element={
           isAdmin ? <Navigate to="/admin/dashboard" replace /> : <Navigate to="/user/dashboard" replace />
         } />
@@ -112,51 +116,47 @@ import { Toaster } from 'react-hot-toast';
 
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <div className="app-container">
-          <DeactivationModal />
-          <Toaster
-            position="top-right"
-            toastOptions={{
-              style: {
-                background: '#fff',
-                color: '#333',
-                border: '1px solid #e0e0e0',
-                padding: '16px',
-                borderRadius: '8px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-              },
-              success: {
-                iconTheme: {
-                  primary: '#4CAF50', // Green
-                  secondary: '#fff',
-                },
-                style: {
-                  borderLeft: '4px solid #4CAF50',
-                }
-              },
-              error: {
-                iconTheme: {
-                  primary: '#FFC107', // Yellow/Amber for error/warning per request
-                  secondary: '#fff',
-                },
-                style: {
-                  borderLeft: '4px solid #FFC107',
-                }
-              },
-              loading: {
-                iconTheme: {
-                  primary: '#FFC107', // Yellow
-                  secondary: '#fff',
-                },
-              }
-            }}
-          />
-          <AppRoutes />
-        </div>
-      </Router>
-    </AuthProvider>
+    <div className="app-container">
+      <DeactivationModal />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: '#fff',
+            color: '#333',
+            border: '1px solid #e0e0e0',
+            padding: '16px',
+            borderRadius: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+          },
+          success: {
+            iconTheme: {
+              primary: '#4CAF50', // Green
+              secondary: '#fff',
+            },
+            style: {
+              borderLeft: '4px solid #4CAF50',
+            }
+          },
+          error: {
+            iconTheme: {
+              primary: '#FFC107', // Yellow/Amber for error/warning per request
+              secondary: '#fff',
+            },
+            style: {
+              borderLeft: '4px solid #FFC107',
+            }
+          },
+          loading: {
+            iconTheme: {
+              primary: '#FFC107', // Yellow
+              secondary: '#fff',
+            },
+          }
+        }}
+      />
+      <AppRoutes />
+    </div>
   );
 }
 

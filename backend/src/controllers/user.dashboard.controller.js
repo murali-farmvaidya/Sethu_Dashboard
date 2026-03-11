@@ -8,6 +8,7 @@ const { sequelize } = require('../config/database');
 const { getTableName } = require('../config/tables');
 const logger = require('../utils/logger');
 const { Op } = require('sequelize');
+const { MissedCall } = require('../models');
 
 /**
  * Get user's assigned agents with statistics
@@ -207,7 +208,36 @@ async function getAgentDetails(req, res) {
     }
 }
 
+/**
+ * Get missed calls for user
+ * GET /api/user/missed-calls
+ */
+async function getMissedCalls(req, res) {
+    try {
+        const userId = req.user.user_id;
+        
+        // Fetch missed calls for this user, ordered by timestamp desc
+        const missedCalls = await MissedCall.findAll({
+            where: { user_id: userId },
+            order: [['timestamp', 'DESC']]
+        });
+
+        res.json({
+            success: true,
+            missedCalls: missedCalls
+        });
+
+    } catch (error) {
+        logger.error('Get missed calls error:', error.message);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to fetch missed calls'
+        });
+    }
+}
+
 module.exports = {
     getUserDashboard,
-    getAgentDetails
+    getAgentDetails,
+    getMissedCalls
 };

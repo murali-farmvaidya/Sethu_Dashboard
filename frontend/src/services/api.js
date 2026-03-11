@@ -66,6 +66,8 @@ export const adminAPI = {
     getUserAgents: (userId) => api.get(`users/${userId}/agents`), // Note: Need to implement this in server if needed, but currently dashboard uses mockUsers
     assignAgent: (userId, data) => api.post(`users/${userId}/agents`, data),
     updateAgents: (userId, agents) => api.put(`users/${userId}/agents`, { agents }),
+    getAgentMissedCalls: (agentId) => api.get(`agents/${agentId}/missed-calls`),
+    markAgentMissedCallsRead: (agentId) => api.post(`agents/${agentId}/missed-calls/mark-read`)
 };
 
 // User APIs
@@ -78,7 +80,8 @@ export const userAPI = {
     getSessionDetails: (sessionId) => api.get(`session/${sessionId}`),
 
     getSessionConversations: (sessionId, params) => api.get(`conversation/${sessionId}`), // Takes ID in path
-    getConversationDetails: (conversationId) => Promise.resolve({ data: {} }) // Not implemented in server/index.js explicitly as ID lookup?
+    getConversationDetails: (conversationId) => Promise.resolve({ data: {} }), // Not implemented in server/index.js explicitly as ID lookup?
+    getMissedCalls: () => api.get('user/missed-calls')
 };
 
 // Auth APIs

@@ -57,6 +57,65 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/exotel', exotelRoutes);
 
+app.get('/api/ping', (req, res) => res.json({ success: true, timestamp: new Date(), message: 'Front-end monolithic server is alive' }));
+
+// Get Missed Calls for logged in user (Early Registration to avoid shadowing)
+app.get('/api/user/missed-calls', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    const token = authHeader.split(' ')[1];
+    let requesterId = null;
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET_ACTIVE);
+        requesterId = decoded.userId;
+    } catch (err) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+
+    try {
+        const result = await pool.query(
+            `SELECT * FROM "${getTableName('MissedCalls')}" 
+             WHERE user_id = $1 
+             ORDER BY timestamp DESC`,
+            [requesterId]
+        );
+
+        res.json({
+            success: true,
+            missedCalls: result.rows
+        });
+    } catch (error) {
+        console.error('Error fetching missed calls:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Get Missed Calls for a specific Agent (Early Registration)
+app.get('/api/agents/:agentId/missed-calls', async (req, res) => {
+    const { agentId } = req.params;
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    try {
+        const result = await pool.query(
+            `SELECT * FROM "${getTableName('MissedCalls')}" 
+             WHERE agent_id = $1 
+             ORDER BY timestamp DESC`,
+            [agentId]
+        );
+
+        res.json({
+            success: true,
+            missedCalls: result.rows
+        });
+    } catch (error) {
+        console.error('Error fetching agent missed calls:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // Email Configuration
 const transporter = nodemailer.createTransport({
@@ -118,6 +177,30 @@ const getExotelRecordingUrl = async (callSid, returnFull = false) => {
         return null;
     }
 };
+
+// Mark Missed Calls for a specific Agent as read
+app.post('/api/agents/:agentId/missed-calls/mark-read', async (req, res) => {
+    const { agentId } = req.params;
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token' });
+
+    try {
+        await pool.query(
+            `UPDATE "${getTableName('MissedCalls')}" 
+             SET is_read = TRUE 
+             WHERE agent_id = $1 AND (is_read = FALSE OR is_read IS NULL)`,
+            [agentId]
+        );
+
+        res.json({
+            success: true,
+            message: 'Missed calls marked as read'
+        });
+    } catch (error) {
+        console.error('Error marking agent missed calls as read:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 // Audio Proxy to bypass CORS issues and support seeking (Range requests)
 app.get('/api/proxy-recording', async (req, res) => {
@@ -504,6 +587,38 @@ const initDatabase = async () => {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+
+        // MissedCalls
+        const missedCallsTable = getTableName('MissedCalls');
+        console.log(`Checking/Creating table: ${missedCallsTable}...`);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS "${missedCallsTable}" (
+                id SERIAL PRIMARY KEY,
+                user_id TEXT REFERENCES "${usersTable}"(user_id),
+                agent_id TEXT,
+                call_sid TEXT,
+                from_number TEXT,
+                to_number TEXT,
+                status TEXT,
+                detailed_status TEXT,
+                error_message TEXT,
+                disconnected_by TEXT,
+                record_url TEXT,
+                is_read BOOLEAN DEFAULT FALSE,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        console.log(`✅ ${missedCallsTable} table initialized`);
+
+        // Migration: Add agent_id and is_read columns if they don't exist
+        try {
+            await pool.query(`ALTER TABLE "${missedCallsTable}" ADD COLUMN IF NOT EXISTS agent_id TEXT`);
+            await pool.query(`ALTER TABLE "${missedCallsTable}" ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE`);
+        } catch (err) {
+            console.error(`Failed to migrate MissedCalls table:`, err.message);
+        }
 
         const billingCols = [
             { name: 'phone_number', type: 'TEXT' },
@@ -997,7 +1112,8 @@ app.get('/api/agents', async (req, res) => {
                 SELECT a.*, 
                 (SELECT COUNT(*) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_session_count,
                 (SELECT COALESCE(SUM(duration_seconds), 0) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND s.started_at >= '2026-01-01' AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_total_duration,
-                (SELECT MAX(started_at) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_last_session
+                (SELECT MAX(started_at) FROM "${getTableName('Sessions')}" s WHERE s.agent_id = a.agent_id AND (s.is_hidden IS NULL OR s.is_hidden = FALSE)) as computed_last_session,
+                (SELECT COUNT(*) FROM "${getTableName('MissedCalls')}" mc WHERE mc.agent_id = a.agent_id AND (mc.is_read = FALSE OR mc.is_read IS NULL)) as computed_unread_missed_calls
                 ${baseQuery}
                 ${whereSql}
                 ORDER BY ${finalSortBy} ${sortOrder} NULLS LAST
@@ -1012,7 +1128,8 @@ app.get('/api/agents', async (req, res) => {
 
         const agents = dataResult.rows.map(row => ({
             ...row,
-            session_count: parseInt(row.computed_session_count || 0)
+            session_count: parseInt(row.computed_session_count || 0),
+            unread_missed_calls: parseInt(row.computed_unread_missed_calls || 0)
         }));
 
         const total = parseInt(countResult.rows[0].count);
@@ -1294,6 +1411,8 @@ app.get('/api/active-sessions', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// Missed Calls logic moved to top of routes section
 
 // Get Sessions for Agent
 app.get('/api/sessions', async (req, res) => {

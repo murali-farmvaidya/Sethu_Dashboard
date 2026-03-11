@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard, Users, UserCog, CreditCard,
-    PieChart, TrendingUp, Key, FileText, ClipboardList, Wallet, List, PlusCircle, Settings, Activity, ChevronDown
+    PieChart, TrendingUp, Key, FileText, ClipboardList, Wallet, List, PlusCircle, Settings, Activity, ChevronDown, Megaphone, PhoneOff, Send
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './Sidebar.css';
@@ -56,6 +56,15 @@ export default function Sidebar({ isOpen, setIsOpen }) {
                 { path: '/admin/payments/plans', label: 'Plans', icon: <ClipboardList size={16} /> },
                 { path: '/admin/payments/bills', label: 'Bills', icon: <FileText size={16} /> }
             ]
+        },
+        {
+            id: 'outreach',
+            label: 'Outreach',
+            icon: <Megaphone size={20} />,
+            subItems: [
+                { path: '/campaigns', label: 'Campaigns', icon: <Send size={16} /> },
+                { path: '/missed-calls', label: 'Missed Calls', icon: <PhoneOff size={16} /> }
+            ]
         }
     ];
 
@@ -66,6 +75,15 @@ export default function Sidebar({ isOpen, setIsOpen }) {
             icon: <LayoutDashboard size={20} />,
             subItems: [
                 { path: '/user/dashboard', label: 'My Agents', icon: <PieChart size={16} /> }
+            ]
+        },
+        {
+            id: 'outreach',
+            label: 'Outreach',
+            icon: <Megaphone size={20} />,
+            subItems: [
+                { path: '/campaigns', label: 'Campaigns', icon: <Send size={16} /> },
+                { path: '/missed-calls', label: 'Missed Calls', icon: <PhoneOff size={16} /> }
             ]
         }
     ];

@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import api, { adminAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Phone, Settings, Send, ArrowLeft, Search, Download, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare, Megaphone, Info } from 'lucide-react';
+import { Phone, Settings, Send, ArrowLeft, Search, Download, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, ArrowUpDown, RefreshCw, Trash2, RotateCcw, ShieldAlert, Eye, EyeOff, X, CheckSquare, Square, MinusSquare, Megaphone, Info, PhoneOff } from 'lucide-react';
 import CampaignTab from '../components/CampaignTab';
 
 const ITEMS_PER_PAGE = 10;
@@ -175,6 +175,146 @@ const confirmToast = (message, onConfirm) => {
             boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)'
         }
     });
+};
+
+// --- MISSED CALLS TAB COMPONENT ---
+const MissedCallsTab = ({ agentId }) => {
+    const [missedCalls, setMissedCalls] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortBy, setSortBy] = useState('timestamp');
+    const [sortOrder, setSortOrder] = useState('desc');
+
+    useEffect(() => {
+        const fetchMissedCalls = async () => {
+            setLoading(true);
+            try {
+                const response = await adminAPI.getAgentMissedCalls(agentId);
+                if (response.data && response.data.missedCalls) {
+                    setMissedCalls(response.data.missedCalls);
+                    // Mark calls as read after fetching them to reset dashboard counter
+                    if (response.data.missedCalls.some(c => !c.is_read)) {
+                        await adminAPI.markAgentMissedCallsRead(agentId);
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to fetch missed calls:', err);
+                // Notification already shown in parent or silent failure
+            } finally {
+                setLoading(false);
+            }
+        };
+        if (agentId) fetchMissedCalls();
+    }, [agentId]);
+
+    const handleSort = (key) => {
+        if (sortBy === key) {
+            setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortBy(key);
+            setSortOrder('desc');
+        }
+    };
+
+    const sortedCalls = [...missedCalls]
+        .filter(call => 
+            (call.from_number?.includes(searchTerm)) || 
+            (call.call_sid?.includes(searchTerm)) ||
+            (call.status?.toLowerCase().includes(searchTerm.toLowerCase()))
+        )
+        .sort((a, b) => {
+            const valA = a[sortBy];
+            const valB = b[sortBy];
+            if (valA < valB) return sortOrder === 'asc' ? -1 : 1;
+            if (valA > valB) return sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
+                <RefreshCw className="spin" size={32} color="var(--primary)" />
+            </div>
+        );
+    }
+
+    return (
+        <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            {/* Filter Toolbar */}
+            <div style={{ background: 'white', borderRadius: '12px', padding: '1.25rem 1.5rem', boxShadow: '0 2px 12px rgba(0,0,0,0.05)', marginBottom: '1.25rem', border: '1px solid #f1f5f9' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ flex: '1 1 280px', display: 'flex', alignItems: 'center', gap: '8px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '0 0.875rem' }}>
+                        <Search size={16} style={{ color: '#94a3b8', flexShrink: 0 }} />
+                        <input
+                            type="text"
+                            placeholder="Search by Number, SID or Status..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            style={{ border: 'none', background: 'transparent', padding: '0.625rem 0', fontSize: '0.875rem', width: '100%', outline: 'none', color: '#1e293b' }}
+                        />
+                        {searchTerm && (
+                            <button onClick={() => setSearchTerm('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', padding: 0 }}><X size={14} /></button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ background: 'white', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
+                <div className="table-container">
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead style={{ background: '#f8f9fa' }}>
+                            <tr>
+                                <th onClick={() => handleSort('timestamp')} style={{ padding: '1rem', textAlign: 'left', cursor: 'pointer', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>
+                                    Time {sortBy === 'timestamp' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>From Number</th>
+                                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Status</th>
+                                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Reason</th>
+                                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Call SID</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sortedCalls.map(call => (
+                                <tr key={call.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '1rem', fontSize: '0.9rem' }}>
+                                        {new Date(call.timestamp).toLocaleString()}
+                                    </td>
+                                    <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '600' }}>
+                                        {call.from_number}
+                                    </td>
+                                    <td style={{ padding: '1rem' }}>
+                                        <span style={{ 
+                                            padding: '4px 10px', 
+                                            borderRadius: '20px', 
+                                            fontSize: '0.75rem', 
+                                            fontWeight: '700',
+                                            background: call.status === 'failed' ? '#fee2e2' : '#fef3c7',
+                                            color: call.status === 'failed' ? '#991b1b' : '#92400e'
+                                        }}>
+                                            {call.status?.toUpperCase()}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#475569' }}>
+                                        {call.detailed_status || call.error_message || 'N/A'}
+                                    </td>
+                                    <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                                        {call.call_sid}
+                                    </td>
+                                </tr>
+                            ))}
+                            {sortedCalls.length === 0 && (
+                                <tr>
+                                    <td colSpan="5" style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                                        No missed calls found for this agent.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 export default function AgentDetails() {
@@ -891,6 +1031,20 @@ export default function AgentDetails() {
                             >
                                 <Search size={16} /> Sessions
                             </button>
+                            <button
+                                onClick={() => updateSearchParams({ tab: 'missed-calls' })}
+                                style={{
+                                    padding: '0.7rem 1.25rem', border: 'none', cursor: 'pointer',
+                                    fontWeight: activeTab === 'missed-calls' ? '600' : '400', fontSize: '0.95rem',
+                                    color: activeTab === 'missed-calls' ? '#008F4B' : '#64748b',
+                                    background: 'transparent',
+                                    borderBottom: activeTab === 'missed-calls' ? '2px solid #008F4B' : '2px solid transparent',
+                                    marginBottom: '-2px', transition: 'all 0.2s',
+                                    display: 'flex', alignItems: 'center', gap: '8px'
+                                }}
+                            >
+                                <PhoneOff size={16} /> Missed Calls
+                            </button>
                             {isAdmin && (
                                 <button
                                     onClick={() => updateSearchParams({ tab: 'campaigns' })}
@@ -1389,6 +1543,12 @@ export default function AgentDetails() {
                                 )
                             }
                         </>)
+                        }
+
+                        {
+                            activeTab === 'missed-calls' && (
+                                <MissedCallsTab agentId={agentId} />
+                            )
                         }
 
                         {

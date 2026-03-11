@@ -8,5 +8,6 @@ router.all('/incoming', exotelController.handleIncoming); // Support GET & POST
 router.all('/callback', exotelController.handleStatusCallback);
 router.all('/reject', exotelController.handleReject);
 router.all('/credit-check', exotelController.handleCreditCheck); // For Passthru Applet
+router.all('/passthru', exotelController.handlePassthru); // Capture missed calls/errors
 
 export default router;

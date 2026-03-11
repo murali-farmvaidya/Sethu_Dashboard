@@ -16,6 +16,7 @@ router.use(authenticate);
 // Dashboard Routes
 router.get('/dashboard', userDashboardController.getUserDashboard);
 router.get('/agents/:agentId', userDashboardController.getAgentDetails);
+router.get('/missed-calls', userDashboardController.getMissedCalls);
 
 // Session Routes
 router.get('/agents/:agentId/sessions', userSessionsController.getAgentSessions);

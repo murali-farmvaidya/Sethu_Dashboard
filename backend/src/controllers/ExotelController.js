@@ -1,4 +1,4 @@
-const { User, ActiveCall, UsageLog } = require('../models');
+const { User, ActiveCall, UsageLog, MissedCall } = require('../models');
 const { exotel, razorpay } = require('../config/platform'); // razorpay unused here
 const logger = require('../utils/logger');
 const axios = require('axios');
@@ -183,5 +183,72 @@ exports.handleStatusCallback = async (req, res) => {
     } catch (e) {
         logger.error('Error in status callback:', e);
     }
+    res.send('OK');
+};
+
+exports.handlePassthru = async (req, res) => {
+    // Handle both GET (query) and POST (body)
+    const params = { ...req.query, ...req.body };
+    logger.info(`Exotel Passthru received: ${JSON.stringify(params)}`);
+
+    try {
+        let streamData = {};
+        
+        // 1. Handle JSON string in 'Stream' key
+        if (params.Stream && typeof params.Stream === 'string' && params.Stream.startsWith('{')) {
+            try {
+                streamData = JSON.parse(params.Stream);
+            } catch (e) {
+                logger.error('Error parsing Stream JSON:', e);
+            }
+        } else {
+            // 2. Handle flat format or object (Stream[Status], etc.)
+            // Note: express/body-parser/query-parser might already nest these if configured
+            // but we'll manually check just in case.
+            
+            streamData = {
+                StreamSID: params['Stream[StreamSID]'] || (params.Stream && params.Stream.StreamSID),
+                Status: params['Stream[Status]'] || (params.Stream && params.Stream.Status),
+                Duration: params['Stream[Duration]'] || (params.Stream && params.Stream.Duration),
+                StreamUrl: params['Stream[StreamUrl]'] || (params.Stream && params.Stream.StreamUrl),
+                RecordingUrl: params['Stream[RecordingUrl]'] || (params.Stream && params.Stream.RecordingUrl),
+                DisconnectedBy: params['Stream[DisconnectedBy]'] || (params.Stream && params.Stream.DisconnectedBy),
+                DetailedStatus: params['Stream[DetailedStatus]'] || (params.Stream && params.Stream.DetailedStatus),
+                Error: params['Stream[Error]'] || (params.Stream && params.Stream.Error)
+            };
+        }
+
+        const callSid = params.CallSid;
+        const from = params.From;
+        const to = params.To;
+        
+        // Find user by virtual number
+        const admin = await getAdminFromNumber(to);
+
+        if (admin) {
+            // Log as missed call if status is not 'completed' or if specifically requested
+            // Keeping it simple: log everything that hits Passthru as a call record
+            // The UI can filter by Status.
+            await MissedCall.create({
+                call_sid: callSid,
+                user_id: admin.user_id,
+                from_number: from,
+                to_number: to,
+                status: streamData.Status,
+                detailed_status: streamData.DetailedStatus,
+                error_message: streamData.Error,
+                disconnected_by: streamData.DisconnectedBy,
+                record_url: streamData.RecordingUrl,
+                timestamp: new Date()
+            });
+            
+            logger.info(`Logged call record for ${callSid} (Status: ${streamData.Status})`);
+        }
+
+    } catch (error) {
+        logger.error('Error in handlePassthru:', error);
+    }
+
+    // Passthru should always return something to avoid hanging Exotel's flow
     res.send('OK');
 };

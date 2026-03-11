@@ -74,6 +74,11 @@ async function startServer() {
     try {
         // Test database connection
         await testConnection();
+        
+        // Sync models
+        const { sequelize } = require('./config/database');
+        await sequelize.sync();
+        logger.info('✅ Database models synced.');
 
         app.listen(PORT, () => {
             logger.info(`🚀 API Server running on port ${PORT}`);

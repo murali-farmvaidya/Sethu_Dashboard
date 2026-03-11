@@ -8,6 +8,7 @@ const UserAgentAssignment = require('./UserAgentAssignment');
 const Payment = require('./Payment');
 const UsageLog = require('./UsageLog');
 const ActiveCall = require('./ActiveCall');
+const MissedCall = require('./MissedCall');
 
 module.exports = {
     Agent,
@@ -19,5 +20,6 @@ module.exports = {
     UserAgentAssignment,
     Payment,
     UsageLog,
-    ActiveCall
+    ActiveCall,
+    MissedCall
 };

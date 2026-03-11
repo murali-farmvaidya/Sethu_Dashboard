@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { adminAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff, CheckSquare, Square, MinusSquare } from 'lucide-react';
+import { Users, MessageSquare, Clock, Search, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Lock, Trash2, Activity, RotateCcw, ShieldAlert, X, EyeOff, CheckSquare, Square, MinusSquare, PhoneIncoming } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const ITEMS_PER_PAGE = 10;
@@ -684,6 +684,29 @@ export default function Dashboard() {
                                 const activeCount = activeInfo ? activeInfo.active_session_count : 0;
                                 return (
                                     <div key={agent.agent_id || agent._id} className="card agent-card" onClick={() => navigate(`/admin/agent/${agent.agent_id}`)} style={{ position: 'relative', cursor: 'pointer', border: selectedAgents.has(agent.agent_id) ? '2px solid #008F4B' : (activeCount > 0 ? '1.5px solid rgba(0,200,100,0.4)' : undefined) }}>
+                                        {/* Missed Calls Badge */}
+                                        {agent.unread_missed_calls > 0 && (
+                                            <div style={{
+                                                position: 'absolute', top: '10px', right: '10px',
+                                                display: 'flex', alignItems: 'center', gap: '5px',
+                                                background: '#fee2e2',
+                                                border: '1px solid #fca5a5',
+                                                borderRadius: '20px',
+                                                padding: '2px 8px',
+                                                zIndex: 5,
+                                                boxShadow: '0 2px 4px rgba(239, 68, 68, 0.1)'
+                                            }}>
+                                                <PhoneIncoming size={12} color="#ef4444" />
+                                                <span style={{
+                                                    fontSize: '0.72rem',
+                                                    fontWeight: '800',
+                                                    color: '#b91c1c'
+                                                }}>
+                                                    {agent.unread_missed_calls} Missed
+                                                </span>
+                                            </div>
+                                        )}
+
                                         {/* Active sessions live indicator — top-left corner */}
                                         {activeCount > 0 && (
                                             <div style={{
