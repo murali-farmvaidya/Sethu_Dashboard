@@ -55,7 +55,7 @@ app.get('/api/dynamic-greeting', getDynamicGreeting);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/notifications', notificationsRoutes);
-app.use('/exotel', exotelRoutes);
+app.use('/api/exotel', exotelRoutes);
 
 app.get('/api/ping', (req, res) => res.json({ success: true, timestamp: new Date(), message: 'Front-end monolithic server is alive' }));
 
