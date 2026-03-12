@@ -47,19 +47,21 @@ const CallerDetails = ({ session }) => {
                 const callId = session.metadata?.telephony?.call_id;
                 if (!callId) return;
 
-                // Serve from cache ONLY if we have a real phone number (not empty/failed)
-                if (callDetailsCache[callId]) {
+                // Serve from cache ONLY if we have a real phone number OR it explicitly failed before (cached as '')
+                if (callId in callDetailsCache) {
                     phone = callDetailsCache[callId];
                 } else {
-                    // Deduplicate in-flight requests for the same callId
                     if (!callDetailsPending[callId]) {
                         callDetailsPending[callId] = api.get(`telephony/call-details/${callId}`)
                             .then(res => {
                                 const from = res.data?.Call?.From || '';
-                                if (from) callDetailsCache[callId] = from; // only cache successes
+                                callDetailsCache[callId] = from; // Cache success OR failure to prevent spam
                                 return from;
                             })
-                            .catch(() => '') // don't cache failures — allow retries
+                            .catch(() => {
+                                callDetailsCache[callId] = ''; // Cache failures as empty to stop retrying
+                                return '';
+                            })
                             .finally(() => { delete callDetailsPending[callId]; });
                     }
                     setLoading(true);
@@ -269,6 +271,7 @@ const MissedCallsTab = ({ agentId }) => {
                                 </th>
                                 <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>From Number</th>
                                 <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Status</th>
+                                <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Disconnected By</th>
                                 <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Reason</th>
                                 <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase' }}>Call SID</th>
                             </tr>
@@ -295,7 +298,20 @@ const MissedCallsTab = ({ agentId }) => {
                                         </span>
                                     </td>
                                     <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#475569' }}>
-                                        {call.detailed_status || call.error_message || 'N/A'}
+                                        <span style={{ 
+                                            padding: '2px 8px', 
+                                            borderRadius: '4px', 
+                                            fontSize: '0.75rem', 
+                                            background: '#f1f5f9',
+                                            color: '#475569',
+                                            fontWeight: '600',
+                                            textTransform: 'capitalize'
+                                        }}>
+                                            {call.disconnected_by || 'Unknown'}
+                                        </span>
+                                    </td>
+                                    <td style={{ padding: '1rem', fontSize: '0.85rem', color: '#475569' }}>
+                                        {call.detailed_status || call.error_message || (call.disconnected_by === 'user' ? 'User Hung Up' : 'No Details')}
                                     </td>
                                     <td style={{ padding: '1rem', fontSize: '0.8rem', color: '#94a3b8', fontFamily: 'monospace' }}>
                                         {call.call_sid}
@@ -304,7 +320,7 @@ const MissedCallsTab = ({ agentId }) => {
                             ))}
                             {sortedCalls.length === 0 && (
                                 <tr>
-                                    <td colSpan="5" style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
+                                    <td colSpan="6" style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
                                         No missed calls found for this agent.
                                     </td>
                                 </tr>
