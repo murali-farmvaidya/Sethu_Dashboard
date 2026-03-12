@@ -397,6 +397,21 @@ export const handlePassthru = async (req, res) => {
         const admin = await getAdminFromExophone(To);
         const userId = admin?.user_id;
 
+        // Fallback: strictly get agent_id if user join failed so missed calls still show up for the agent
+        let agentId = admin?.agent_id;
+        let finalUserId = userId;
+        if (!agentId && To) {
+            const cleanNumber = To.replace(/^(\+91|91|0)/, '');
+            const fallbackRes = await pool.query(`SELECT agent_id FROM "${getTableName('Agent_Telephony_Config')}" WHERE exophone = $1 OR exophone = $2 OR exophone LIKE '%' || $2 OR $1 LIKE '%' || exophone LIMIT 1`, [To, cleanNumber]);
+            agentId = fallbackRes.rows[0]?.agent_id;
+            
+            // Also attempt to get the user_id if we found the agent
+            if (agentId && !finalUserId) {
+                const userRes = await pool.query(`SELECT user_id FROM "${getTableName('User_Agents')}" WHERE agent_id = $1 LIMIT 1`, [agentId]);
+                finalUserId = userRes.rows[0]?.user_id || null;
+            }
+        }
+
         let streamData = {};
         if (typeof Stream === 'string' && Stream.startsWith('{')) {
             try { streamData = JSON.parse(Stream); } catch (e) { }
@@ -406,32 +421,38 @@ export const handlePassthru = async (req, res) => {
 
         const currentStatus = Status || streamData.Status || params['Stream[Status]'] || params['Status'];
         const currentDetailedStatus = DetailedStatus || streamData.DetailedStatus || params['Stream[DetailedStatus]'] || params['DetailedStatus'];
+        const disconnectedBy = streamData.DisconnectedBy || params['Stream[DisconnectedBy]'] || params['DisconnectedBy'];
 
-        const isMissed = ['failed', 'busy', 'no-answer', 'canceled'].includes(currentStatus?.toLowerCase()) || 
+        console.log(`📡 [PASSTHRU] Status: ${currentStatus || 'N/A'}, Detailed: ${currentDetailedStatus || 'N/A'}, DisconnectedBy: ${disconnectedBy || 'N/A'}`);
+
+        const isMissed = ['failed', 'busy', 'no-answer', 'canceled', 'cancelled'].includes(currentStatus?.toLowerCase()) || 
                          (currentDetailedStatus && (
                              currentDetailedStatus.toLowerCase().includes('throttle') || 
                              currentDetailedStatus.toLowerCase().includes('hung-up') ||
                              currentDetailedStatus.toLowerCase().includes('failed')
                          )) ||
-                         (currentStatus?.toLowerCase() === 'failed');
+                         (currentStatus?.toLowerCase() === 'failed') ||
+                         (disconnectedBy?.toLowerCase() === 'user');
 
         if (isMissed) {
             await pool.query(
                 `INSERT INTO "${getTableName('MissedCalls')}" (
                     user_id, agent_id, call_sid, from_number, to_number, 
-                    status, detailed_status, error_message,
+                    status, detailed_status, error_message, disconnected_by,
                     timestamp, created_at, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW(), NOW())
-                ON CONFLICT (call_sid) DO NOTHING`,
+                ) 
+                SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW()
+                WHERE NOT EXISTS (SELECT 1 FROM "${getTableName('MissedCalls')}" WHERE call_sid = $3)`,
                 [
-                    userId,
-                    admin?.agent_id || null,
-                    CallSid,
-                    From,
-                    To,
-                    currentStatus,
-                    currentDetailedStatus,
-                    params.ErrorMessage || streamData.ErrorMessage || null
+                    finalUserId || null,
+                    agentId || null,
+                    CallSid || null,
+                    From || null,
+                    To || null,
+                    currentStatus || null,
+                    currentDetailedStatus || null,
+                    params.ErrorMessage || streamData.ErrorMessage || null,
+                    disconnectedBy || null
                 ]
             );
         }
