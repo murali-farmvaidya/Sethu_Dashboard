@@ -186,6 +186,8 @@ const MissedCallsTab = ({ agentId }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sortBy, setSortBy] = useState('timestamp');
     const [sortOrder, setSortOrder] = useState('desc');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage] = useState(10);
 
     useEffect(() => {
         const fetchMissedCalls = async () => {
@@ -232,6 +234,12 @@ const MissedCallsTab = ({ agentId }) => {
             return 0;
         });
 
+    const totalPages = Math.ceil(sortedCalls.length / itemsPerPage);
+    const paginatedCalls = sortedCalls.slice(
+        (currentPage - 1) * itemsPerPage,
+        currentPage * itemsPerPage
+    );
+
     if (loading) {
         return (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}>
@@ -251,7 +259,7 @@ const MissedCallsTab = ({ agentId }) => {
                             type="text"
                             placeholder="Search by Number, SID or Status..."
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                             style={{ border: 'none', background: 'transparent', padding: '0.625rem 0', fontSize: '0.875rem', width: '100%', outline: 'none', color: '#1e293b' }}
                         />
                         {searchTerm && (
@@ -277,7 +285,7 @@ const MissedCallsTab = ({ agentId }) => {
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedCalls.map(call => (
+                            {paginatedCalls.map(call => (
                                 <tr key={call.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                     <td style={{ padding: '1rem', fontSize: '0.9rem' }}>
                                         {new Date(call.timestamp).toLocaleString()}
@@ -318,7 +326,7 @@ const MissedCallsTab = ({ agentId }) => {
                                     </td>
                                 </tr>
                             ))}
-                            {sortedCalls.length === 0 && (
+                            {paginatedCalls.length === 0 && (
                                 <tr>
                                     <td colSpan="6" style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
                                         No missed calls found for this agent.
@@ -329,6 +337,41 @@ const MissedCallsTab = ({ agentId }) => {
                     </table>
                 </div>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'center', 
+                    alignItems: 'center', 
+                    gap: '1rem', 
+                    marginTop: '1.5rem',
+                    padding: '1rem',
+                    background: 'white',
+                    borderRadius: '12px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
+                }}>
+                    <button
+                        className="btn-secondary"
+                        onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                        disabled={currentPage === 1}
+                        style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                        <ChevronLeft size={16} /> Prev
+                    </button>
+                    <span style={{ fontSize: '0.875rem', fontWeight: '600', color: '#64748b' }}>
+                        Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                        className="btn-secondary"
+                        onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                        disabled={currentPage === totalPages}
+                        style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                        Next <ChevronRight size={16} />
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
