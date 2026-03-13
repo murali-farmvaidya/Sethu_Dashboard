@@ -714,7 +714,20 @@ async function main() {
         await testConnection();
         // Sync Models (Create Tables if not exist)
         logger.info('🏗️  Verifying database creation (Auto-Sync)...');
-        await sequelize.sync({ alter: true }); // uses ALTER TABLE to match model
+        try {
+            // 'alter: true' tries to match the DB schema to the model.
+            // In production, this can sometimes fail due to constraint naming mismatches.
+            await sequelize.sync({ alter: true }); 
+        } catch (syncError) {
+            if (syncError.name === 'SequelizeUnknownConstraintError' || syncError.message.includes('constraint') || syncError.message.includes('does not exist')) {
+                logger.warn(`⚠️  Database Alter Sync partially failed (Constraint Issue): ${syncError.message}`);
+                logger.info('🔄 Falling back to standard sync (only creates missing tables)...');
+                await sequelize.sync(); // Fallback: just ensure tables exist
+            } else {
+                // If it's a different error, we still want to know
+                throw syncError;
+            }
+        }
 
         // Ensure Excluded_Items table exists for this environment
         await sequelize.query(`
