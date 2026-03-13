@@ -250,7 +250,13 @@ const UsageHistory = () => {
                                                 {/* DATE */}
                                                 <td style={tdStyle}>
                                                     <div style={{ fontWeight: '700', fontSize: '0.87rem', color: 'var(--text, #111)', whiteSpace: 'nowrap' }}>
-                                                        {txnDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                        {(() => {
+                                                            const d = new Date(txnDate);
+                                                            const day = d.getDate().toString().padStart(2, '0');
+                                                            const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                                                            const year = d.getFullYear();
+                                                            return `${day}-${month}-${year}`;
+                                                        })()}
                                                     </div>
                                                     <div style={{ fontSize: '0.74rem', color: 'var(--text-muted, #9ca3af)', marginTop: '3px', whiteSpace: 'nowrap' }}>
                                                         {txnDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}

@@ -127,6 +127,14 @@ const Session = sequelize.define('Session', {
     is_hidden: {
         type: DataTypes.BOOLEAN,
         defaultValue: false
+    },
+    customer_phone: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    caller_info: {
+        type: DataTypes.JSONB,
+        allowNull: true
     }
 }, {
     tableName: getTableName('Sessions'),

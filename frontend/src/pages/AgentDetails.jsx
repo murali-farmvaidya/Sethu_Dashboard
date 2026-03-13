@@ -188,6 +188,21 @@ const MissedCallsTab = ({ agentId }) => {
     const [sortOrder, setSortOrder] = useState('desc');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(10);
+    
+    const formatDateTime = (dateStr) => {
+        if (!dateStr) return '-';
+        const date = new Date(dateStr);
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const year = date.getFullYear();
+        const time = date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+        return `${day}-${month}-${year} ${time}`;
+    };
+
 
     useEffect(() => {
         const fetchMissedCalls = async () => {
@@ -288,7 +303,7 @@ const MissedCallsTab = ({ agentId }) => {
                             {paginatedCalls.map(call => (
                                 <tr key={call.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                                     <td style={{ padding: '1rem', fontSize: '0.9rem' }}>
-                                        {new Date(call.timestamp).toLocaleString()}
+                                        {formatDateTime(call.timestamp)}
                                     </td>
                                     <td style={{ padding: '1rem', fontSize: '0.9rem', fontWeight: '600' }}>
                                         {call.from_number}

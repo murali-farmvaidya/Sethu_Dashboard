@@ -86,7 +86,15 @@ const PaymentHistory = () => {
                                         return (
                                             <tr key={txn.id} className="session-row">
                                                 <td>
-                                                    <div style={{ fontSize: '0.875rem', fontWeight: '600' }}>{new Date(txn.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                                                    <div style={{ fontSize: '0.875rem', fontWeight: '600' }}>
+                                                        {(() => {
+                                                            const d = new Date(txn.created_at);
+                                                            const day = d.getDate().toString().padStart(2, '0');
+                                                            const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                                                            const year = d.getFullYear();
+                                                            return `${day}-${month}-${year}`;
+                                                        })()}
+                                                    </div>
                                                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{new Date(txn.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</div>
                                                 </td>
                                                 <td>
@@ -134,7 +142,14 @@ const PaymentHistory = () => {
                                             </div>
                                         </div>
                                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                                            {new Date(txn.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                            {(() => {
+                                                const d = new Date(txn.created_at);
+                                                const day = d.getDate().toString().padStart(2, '0');
+                                                const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                                                const year = d.getFullYear();
+                                                const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+                                                return `${day}-${month}-${year}, ${time}`;
+                                            })()}
                                         </div>
                                         {isCall && details.session_id && (
                                             <Link to={`/admin/session/${details.session_id}`} style={{ fontSize: '0.8rem', color: 'var(--primary)', textDecoration: 'none', fontWeight: '600', marginTop: '4px', display: 'block' }}>

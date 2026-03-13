@@ -409,10 +409,15 @@ export default function CampaignTab({ agentId, agentName, onNavigateToSession, t
     const formatCampaignDate = (dateString) => {
         if (!dateString) return '-';
         const date = new Date(dateString);
-        return date.toLocaleString('en-US', {
-            month: 'short', day: 'numeric', year: 'numeric',
-            hour: 'numeric', minute: '2-digit', hour12: true
-        }).replace(',', ''); // Feb 13 2026 12:06 PM
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const year = date.getFullYear();
+        const time = date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true
+        });
+        return `${day}-${month}-${year} ${time}`;
     };
 
     const getEffectiveStatus = (camp) => {

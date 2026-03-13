@@ -23,6 +23,21 @@ export default function AdminUsers() {
   const [error, setError] = useState(null);
   const userCache = useRef({});
   const latestReqId = useRef(0);
+  
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '-';
+      const day = date.getDate().toString().padStart(2, '0');
+      const month = (date.getMonth() + 1).toString().padStart(2, '0');
+      const year = date.getFullYear();
+      return `${day}-${month}-${year}`;
+    } catch (e) {
+      return '-';
+    }
+  };
+
 
   // Confirmation Modal State
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -390,10 +405,10 @@ export default function AdminUsers() {
                         {user.creator_email || (user.user_id === 'admin_1' ? 'System' : 'Unknown')}
                       </div>
                     </td>
-                    <td>{new Date(user.created_at).toLocaleDateString()}</td>
+                    <td>{formatDate(user.created_at)}</td>
                     <td>
                       <div className="creator-info" style={{ display: 'flex', flexDirection: 'column' }}>
-                        <span>Exp: {user.subscription_expiry ? new Date(user.subscription_expiry).toLocaleDateString() : 'None'}</span>
+                        <span>Exp: {user.subscription_expiry ? formatDate(user.subscription_expiry) : 'None'}</span>
                         <span style={{ color: '#008F4B', fontWeight: 'bold' }}>{parseFloat(user.minutes_balance || 0).toFixed(2)} Credits</span>
                       </div>
                     </td>
