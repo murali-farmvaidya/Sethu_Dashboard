@@ -204,7 +204,13 @@ const AdminTools = () => {
                                         const bal = parseFloat(u.minutes_balance || 0);
                                         const subActive = u.subscription_expiry && new Date(u.subscription_expiry) > new Date();
                                         const validityDate = u.subscription_expiry
-                                            ? new Date(u.subscription_expiry).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, ' ')
+                                            ? (() => {
+                                                const d = new Date(u.subscription_expiry);
+                                                const day = d.getDate().toString().padStart(2, '0');
+                                                const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                                                const year = d.getFullYear();
+                                                return `${day}-${month}-${year}`;
+                                              })()
                                             : 'N/A';
                                         const creatorEmail = u.creator_email || (u.created_by && u.created_by !== '-' ? u.created_by : 'Unknown');
                                         const displayName = u.name && u.name !== '-' ? u.name : u.email;
@@ -352,7 +358,13 @@ const AdminTools = () => {
                                                             .map(r => (
                                                                 <tr key={r.id} className="session-row">
                                                                     <td style={{ whiteSpace: 'nowrap', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                                                                        {new Date(r.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                                        {(() => {
+                                                                            const d = new Date(r.created_at);
+                                                                            const day = d.getDate().toString().padStart(2, '0');
+                                                                            const month = (d.getMonth() + 1).toString().padStart(2, '0');
+                                                                            const year = d.getFullYear();
+                                                                            return `${day}-${month}-${year}`;
+                                                                        })()}
                                                                     </td>
                                                                     <td style={{ fontSize: '0.85rem', fontWeight: '500' }}>{r.description}</td>
                                                                     <td style={{ textAlign: 'center', fontWeight: '700', color: r.transaction_type === 'credit' ? 'var(--primary)' : '#ef4444' }}>

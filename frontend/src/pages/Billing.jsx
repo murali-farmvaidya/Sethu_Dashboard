@@ -84,7 +84,15 @@ const Billing = () => {
     );
 
     const isSubscriptionActive = balances?.subscription_expiry && new Date(balances.subscription_expiry) > new Date();
-    const expiryDate = balances?.subscription_expiry ? new Date(balances.subscription_expiry).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, ' ') : 'N/A';
+    const expiryDate = balances?.subscription_expiry 
+        ? (() => {
+            const d = new Date(balances.subscription_expiry);
+            const day = d.getDate().toString().padStart(2, '0');
+            const month = (d.getMonth() + 1).toString().padStart(2, '0');
+            const year = d.getFullYear();
+            return `${day}-${month}-${year}`;
+          })()
+        : 'N/A';
     const balance = parseFloat(balances?.minutes_balance || 0);
     const isLowBalance = balance < 100;
 
