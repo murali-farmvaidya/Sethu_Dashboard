@@ -425,14 +425,15 @@ export const handlePassthru = async (req, res) => {
 
         console.log(`📡 [PASSTHRU] Status: ${currentStatus || 'N/A'}, Detailed: ${currentDetailedStatus || 'N/A'}, DisconnectedBy: ${disconnectedBy || 'N/A'}`);
 
-        const isMissed = ['failed', 'busy', 'no-answer', 'canceled', 'cancelled'].includes(currentStatus?.toLowerCase()) || 
-                         (currentDetailedStatus && (
-                             currentDetailedStatus.toLowerCase().includes('throttle') || 
-                             currentDetailedStatus.toLowerCase().includes('hung-up') ||
-                             currentDetailedStatus.toLowerCase().includes('failed')
-                         )) ||
-                         (currentStatus?.toLowerCase() === 'failed') ||
-                         (disconnectedBy?.toLowerCase() === 'user');
+        const isMissed = (
+                            ['failed', 'busy', 'no-answer', 'canceled', 'cancelled'].includes(currentStatus?.toLowerCase()) || 
+                            (currentDetailedStatus && (
+                                currentDetailedStatus.toLowerCase().includes('throttle') || 
+                                currentDetailedStatus.toLowerCase().includes('hung-up') ||
+                                currentDetailedStatus.toLowerCase().includes('failed')
+                            )) ||
+                            (disconnectedBy?.toLowerCase() === 'user')
+                         ) && currentStatus?.toLowerCase() !== 'completed';
 
         if (isMissed) {
             await pool.query(
